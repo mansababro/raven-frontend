@@ -66,9 +66,18 @@ export function ChatScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
   const { user } = useSelector((state: RootState) => state.auth);
   const userEmail = user?.email || 'user@example.com';
 
+  const safeJsonParse = <T,>(value: string | null, fallback: T): T => {
+    if (value == null) return fallback;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  };
+
   // Get user preferences from localStorage
-  const userGenres = JSON.parse(localStorage.getItem('raven_user_genres') || '[]');
-  const userVibes = JSON.parse(localStorage.getItem('raven_user_vibes') || '[]');
+  const userGenres = safeJsonParse<unknown[]>(localStorage.getItem('raven_user_genres'), []);
+  const userVibes = safeJsonParse<unknown[]>(localStorage.getItem('raven_user_vibes'), []);
   const userArtists = localStorage.getItem('raven_user_artists') || '';
 
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -233,12 +242,7 @@ export function ChatScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
 
   const handleLogout = async () => {
     await dispatch(signOut());
-    // Clear all raven-related localStorage data
-    localStorage.removeItem('raven_onboarding_complete');
-    localStorage.removeItem('raven_user_genres');
-    localStorage.removeItem('raven_user_vibes');
-    localStorage.removeItem('raven_user_artists');
-    navigate('/');
+    navigate('/login', { replace: true });
   };
 
   const handleDeleteAccount = async () => {

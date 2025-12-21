@@ -7,12 +7,11 @@ import type { AppDispatch, RootState } from '../store/store';
 import svgPaths from "../imports/svg-p6w04fvk13";
 
 interface SignUpScreenProps {
-  onSignUp: () => void;
   onPrivacyClick: () => void;
   onTermsClick: () => void;
 }
 
-export function SignUpScreen({ onSignUp, onPrivacyClick, onTermsClick }: SignUpScreenProps) {
+export function SignUpScreen({ onPrivacyClick, onTermsClick }: SignUpScreenProps) {
   const navigate = useNavigate();
   const dispatch = useDispatch<AppDispatch>();
   const { loading, error, isAuthenticated } = useSelector((state: RootState) => state.auth);
@@ -63,12 +62,8 @@ export function SignUpScreen({ onSignUp, onPrivacyClick, onTermsClick }: SignUpS
   // Navigate when user becomes authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      const hasCompletedOnboarding = localStorage.getItem('raven_onboarding_complete') === 'true';
-      if (hasCompletedOnboarding) {
-        navigate('/chat');
-      } else {
-        navigate('/onboarding');
-      }
+      // Navigate to /home - it will handle showing onboarding or chat based on hasPreferences
+      navigate('/home');
     }
   }, [isAuthenticated, navigate]);
 
@@ -120,9 +115,9 @@ export function SignUpScreen({ onSignUp, onPrivacyClick, onTermsClick }: SignUpS
   };
 
   return (
-    <div className="bg-[#121212] size-full md:flex md:flex-row overflow-auto">
+    <div className="bg-[#121212] min-h-[100svh] w-full md:flex md:flex-row overflow-auto">
       {/* Hero Section */}
-      <div className="relative w-full md:w-1/2 h-[100svh] md:h-full flex items-center justify-center px-4 md:px-8 overflow-auto">
+      <div className="relative w-full md:w-1/2 h-[100svh] md:h-full flex items-center justify-center px-4 md:px-8 overflow-auto mt-4">
         {/* Hero Background Card */}
         <div className="bg-[#8f7db4] overflow-auto relative rounded-[20px] w-full max-w-[676px] min-h-[calc(100svh-32px)] md:h-[calc(100%-64px)] flex items-center justify-center">
           {/* Content Container */}

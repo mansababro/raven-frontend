@@ -3,6 +3,22 @@ import { supabase } from '../../lib/supabase'
 
 const API_URL = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:4000'
 
+const fetchJsonWithTimeout = async <T>(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = 8000,
+): Promise<T> => {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal })
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+    return (await res.json()) as T
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 interface User {
   id: string
   email?: string
@@ -15,11 +31,34 @@ interface Profile {
   [key: string]: any
 }
 
-interface Session {
-  access_token: string
-  refresh_token?: string
-  expires_at?: number
-  user: User
+// (Session interface removed; unused)
+
+interface UserPreferences {
+  genres: string[]
+  vibes: string[]
+  avoid: string[]
+  factors: string[]
+  venue_sizes: string[]
+}
+
+const hasMeaningfulItems = (value: unknown): boolean => {
+  if (!Array.isArray(value)) return false
+  return value.some((item) => {
+    if (item === null || item === undefined) return false
+    const str = String(item).trim()
+    return str.length > 0 && str.toLowerCase() !== 'null'
+  })
+}
+
+const computeHasPreferences = (preferences: any): boolean => {
+  if (!preferences) return false
+  return (
+    hasMeaningfulItems(preferences.genres) ||
+    hasMeaningfulItems(preferences.vibes) ||
+    hasMeaningfulItems(preferences.avoid) ||
+    hasMeaningfulItems(preferences.factors) ||
+    hasMeaningfulItems(preferences.venue_sizes)
+  )
 }
 
 interface AuthState {
@@ -29,16 +68,46 @@ interface AuthState {
   loading: boolean
   error: string | null
   isAuthenticated: boolean
+  hasPreferences: boolean
+  preferences: UserPreferences | null
+}
+
+const loadStoredSession = (): { user: User | null; token: string | null; isAuthenticated: boolean } => {
+  if (typeof window === 'undefined') return { user: null, token: null, isAuthenticated: false }
+  try {
+    const raw = localStorage.getItem('raven_session')
+    if (!raw) return { user: null, token: null, isAuthenticated: false }
+    const session = JSON.parse(raw)
+    const token = session?.access_token || null
+    const user = session?.user || null
+    if (token && user?.id) return { user, token, isAuthenticated: true }
+  } catch {
+    // ignore
+  }
+  return { user: null, token: null, isAuthenticated: false }
+}
+
+const loadStoredHasPreferences = (): boolean => {
+  if (typeof window === 'undefined') return false
+  try {
+    return localStorage.getItem('raven_has_preferences') === 'true'
+  } catch {
+    return false
+  }
 }
 
 // Initial state
+const stored = loadStoredSession()
 const initialState: AuthState = {
-  user: null,
+  user: stored.user,
   profile: null,
-  token: null,
-  loading: false,
+  token: stored.token,
+  // If we have a stored session, don't block the app behind a loader.
+  loading: !stored.isAuthenticated,
   error: null,
-  isAuthenticated: false
+  isAuthenticated: stored.isAuthenticated,
+  hasPreferences: stored.isAuthenticated ? loadStoredHasPreferences() : false,
+  preferences: null
 }
 
 // Async thunk: Sign up with email and password
@@ -53,22 +122,39 @@ export const signUp = createAsyncThunk(
 
       if (error) throw error
 
-      // If session exists, fetch profile from backend
+      // If session exists, fetch full profile (includes preferences)
       if (data.session) {
+        // Persist session for refresh-stable auth
         try {
-          const profileResponse = await fetch(`${API_URL}/api/auth/me`, {
-            headers: {
-              'Authorization': `Bearer ${data.session.access_token}`
-            }
-          })
+          localStorage.setItem('raven_session', JSON.stringify(data.session))
+          localStorage.setItem('raven_user_id', data.user!.id)
+        } catch {
+          // ignore
+        }
 
-          if (profileResponse.ok) {
-            const profileData = await profileResponse.json()
-            return {
-              user: data.user!,
-              session: data.session,
-              profile: profileData.profile || null
-            }
+        try {
+          const profileData: any = await fetchJsonWithTimeout(
+            `${API_URL}/users/${data.user!.id}/full-profile`,
+            {
+              headers: { Authorization: `Bearer ${data.session.access_token}` },
+            },
+          )
+
+          // Check if user has preferences
+          const preferences = profileData.preferences || null
+          const hasPreferences = computeHasPreferences(preferences)
+          try {
+            localStorage.setItem('raven_has_preferences', hasPreferences ? 'true' : 'false')
+          } catch {
+            // ignore
+          }
+
+          return {
+            user: data.user!,
+            session: data.session,
+            profile: profileData.profile || null,
+            preferences,
+            hasPreferences,
           }
         } catch (profileError) {
           // If profile fetch fails, still return session
@@ -79,7 +165,9 @@ export const signUp = createAsyncThunk(
       return {
         user: data.user,
         session: data.session,
-        profile: null
+        profile: null,
+        preferences: null,
+        hasPreferences: false
       }
     } catch (error: any) {
       return rejectWithValue(error.message)
@@ -99,23 +187,50 @@ export const signIn = createAsyncThunk(
 
       if (error) throw error
 
-      // Fetch user profile from backend
-      const profileResponse = await fetch(`${API_URL}/api/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${data.session!.access_token}`
-        }
-      })
-
-      if (!profileResponse.ok) {
-        throw new Error('Failed to fetch user profile')
+      // Persist session for refresh-stable auth
+      try {
+        localStorage.setItem('raven_session', JSON.stringify(data.session))
+        localStorage.setItem('raven_user_id', data.user!.id)
+      } catch {
+        // ignore
       }
 
-      const profileData = await profileResponse.json()
+      // Fetch full user profile (includes preferences). If backend is down, still allow sign-in.
+      try {
+        const profileData: any = await fetchJsonWithTimeout(
+          `${API_URL}/users/${data.user!.id}/full-profile`,
+          { headers: { Authorization: `Bearer ${data.session!.access_token}` } },
+        )
 
-      return {
-        user: data.user!,
-        session: data.session!,
-        profile: profileData.profile
+        const preferences = profileData.preferences || null
+        const hasPreferences = computeHasPreferences(preferences)
+        try {
+          localStorage.setItem('raven_has_preferences', hasPreferences ? 'true' : 'false')
+        } catch {
+          // ignore
+        }
+
+        return {
+          user: data.user!,
+          session: data.session!,
+          profile: profileData.profile,
+          preferences,
+          hasPreferences,
+        }
+      } catch (profileError) {
+        console.warn('Failed to fetch profile on signin:', profileError)
+        try {
+          localStorage.setItem('raven_has_preferences', 'false')
+        } catch {
+          // ignore
+        }
+        return {
+          user: data.user!,
+          session: data.session!,
+          profile: null,
+          preferences: null,
+          hasPreferences: false,
+        }
       }
     } catch (error: any) {
       return rejectWithValue(error.message)
@@ -151,10 +266,18 @@ export const handleOAuthCallback = createAsyncThunk(
   'auth/handleOAuthCallback',
   async (_, { rejectWithValue }) => {
     try {
-      // Wait a moment for Supabase to process the hash if it exists
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-      const { data, error } = await supabase.auth.getSession()
+      // Supabase may take a moment to process the URL hash. Retry briefly.
+      let data: any = null
+      let error: any = null
+      for (let i = 0; i < 25; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(resolve => setTimeout(resolve, i === 0 ? 50 : 150))
+        // eslint-disable-next-line no-await-in-loop
+        const res = await supabase.auth.getSession()
+        data = res.data
+        error = res.error
+        if (data?.session) break
+      }
 
       if (error) throw error
 
@@ -162,20 +285,31 @@ export const handleOAuthCallback = createAsyncThunk(
         throw new Error('No session found')
       }
 
-      // Try to fetch user profile from backend, but don't fail if it errors
-      let profile = null
+      // Persist session + user id for your flow
       try {
-        const profileResponse = await fetch(`${API_URL}/api/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${data.session.access_token}`
-          }
-        })
+        localStorage.setItem('raven_session', JSON.stringify(data.session))
+        localStorage.setItem('raven_user_id', data.session.user.id)
+      } catch {
+        // ignore storage failures
+      }
 
-        if (profileResponse.ok) {
-          const profileData = await profileResponse.json()
-          profile = profileData.profile || null
-        } else {
-          console.warn('Failed to fetch user profile, but session is valid')
+      // Fetch full user profile from backend, but don't fail if it errors
+      let profile = null
+      let preferences = null
+      let hasPreferences = false
+      
+      try {
+        const profileData: any = await fetchJsonWithTimeout(
+          `${API_URL}/users/${data.session.user.id}/full-profile`,
+          { headers: { Authorization: `Bearer ${data.session.access_token}` } },
+        )
+        profile = profileData.profile || null
+        preferences = profileData.preferences || null
+        hasPreferences = computeHasPreferences(preferences)
+        try {
+          localStorage.setItem('raven_has_preferences', hasPreferences ? 'true' : 'false')
+        } catch {
+          // ignore
         }
       } catch (profileError) {
         // Backend might not be running - that's okay, we have a valid session
@@ -185,7 +319,9 @@ export const handleOAuthCallback = createAsyncThunk(
       return {
         user: data.session.user,
         session: data.session,
-        profile
+        profile,
+        preferences,
+        hasPreferences
       }
     } catch (error: any) {
       return rejectWithValue(error.message)
@@ -196,21 +332,30 @@ export const handleOAuthCallback = createAsyncThunk(
 // Async thunk: Sign out
 export const signOut = createAsyncThunk(
   'auth/signOut',
-  async (_, { rejectWithValue }) => {
+  async () => {
+    // Best-effort server sign out; even if it fails we still clear client state/storage.
     try {
       const { error } = await supabase.auth.signOut()
-      if (error) throw error
-      
-      // Clear all raven-related localStorage data
-      localStorage.removeItem('raven_onboarding_complete')
-      localStorage.removeItem('raven_user_genres')
-      localStorage.removeItem('raven_user_vibes')
-      localStorage.removeItem('raven_user_artists')
-      
-      return null
-    } catch (error: any) {
-      return rejectWithValue(error.message)
+      if (error) {
+        console.warn('Supabase signOut failed:', error)
+      }
+    } catch (error) {
+      console.warn('Supabase signOut threw:', error)
+    } finally {
+      // Remove everything from storage as requested.
+      try {
+        localStorage.clear()
+      } catch {
+        // ignore
+      }
+      try {
+        sessionStorage.clear()
+      } catch {
+        // ignore
+      }
     }
+
+    return null
   }
 )
 
@@ -227,20 +372,31 @@ export const getCurrentSession = createAsyncThunk(
         return null
       }
 
-      // Try to fetch user profile from backend, but don't fail if it errors
-      let profile = null
+      // Persist session + user id for your flow
       try {
-        const profileResponse = await fetch(`${API_URL}/api/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${data.session.access_token}`
-          }
-        })
+        localStorage.setItem('raven_session', JSON.stringify(data.session))
+        localStorage.setItem('raven_user_id', data.session.user.id)
+      } catch {
+        // ignore storage failures
+      }
 
-        if (profileResponse.ok) {
-          const profileData = await profileResponse.json()
-          profile = profileData.profile || null
-        } else {
-          console.warn('Failed to fetch user profile, but session is valid')
+      // Fetch full user profile from backend, but don't fail if it errors
+      let profile = null
+      let preferences = null
+      let hasPreferences = false
+      
+      try {
+        const profileData: any = await fetchJsonWithTimeout(
+          `${API_URL}/users/${data.session.user.id}/full-profile`,
+          { headers: { Authorization: `Bearer ${data.session.access_token}` } },
+        )
+        profile = profileData.profile || null
+        preferences = profileData.preferences || null
+        hasPreferences = computeHasPreferences(preferences)
+        try {
+          localStorage.setItem('raven_has_preferences', hasPreferences ? 'true' : 'false')
+        } catch {
+          // ignore
         }
       } catch (profileError) {
         // Backend might not be running - that's okay, we have a valid session
@@ -250,7 +406,9 @@ export const getCurrentSession = createAsyncThunk(
       return {
         user: data.session.user,
         session: data.session,
-        profile
+        profile,
+        preferences,
+        hasPreferences
       }
     } catch (error: any) {
       return rejectWithValue(error.message)
@@ -268,21 +426,20 @@ export const refreshProfile = createAsyncThunk(
         throw new Error('No token available')
       }
 
-      const profileResponse = await fetch(`${API_URL}/api/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${state.auth.token}`
-        }
-      })
-
-      if (!profileResponse.ok) {
-        throw new Error('Failed to fetch user profile')
+      const userId = state.auth.user?.id
+      if (!userId) {
+        throw new Error('No user available')
       }
 
-      const profileData = await profileResponse.json()
+      const profileData: any = await fetchJsonWithTimeout(
+        `${API_URL}/users/${userId}/full-profile`,
+        { headers: { Authorization: `Bearer ${state.auth.token}` } },
+      )
 
       return {
         profile: profileData.profile,
-        user: profileData.user
+        user: profileData.user,
+        preferences: profileData.preferences || null
       }
     } catch (error: any) {
       return rejectWithValue(error.message)
@@ -315,6 +472,8 @@ const authSlice = createSlice({
         state.profile = action.payload.profile
         state.token = action.payload.session?.access_token || null
         state.isAuthenticated = !!action.payload.session
+        state.preferences = action.payload.preferences || null
+        state.hasPreferences = action.payload.hasPreferences || false
         state.error = null
       })
       .addCase(signUp.rejected, (state, action) => {
@@ -335,6 +494,8 @@ const authSlice = createSlice({
         state.profile = action.payload.profile
         state.token = action.payload.session.access_token
         state.isAuthenticated = true
+        state.preferences = action.payload.preferences || null
+        state.hasPreferences = action.payload.hasPreferences || false
         state.error = null
       })
       .addCase(signIn.rejected, (state, action) => {
@@ -372,6 +533,8 @@ const authSlice = createSlice({
         state.profile = action.payload.profile
         state.token = action.payload.session.access_token
         state.isAuthenticated = true
+        state.preferences = action.payload.preferences || null
+        state.hasPreferences = action.payload.hasPreferences || false
         state.error = null
       })
       .addCase(handleOAuthCallback.rejected, (state, action) => {
@@ -391,6 +554,8 @@ const authSlice = createSlice({
         state.profile = null
         state.token = null
         state.isAuthenticated = false
+        state.preferences = null
+        state.hasPreferences = false
         state.error = null
       })
       .addCase(signOut.rejected, (state, action) => {
@@ -401,7 +566,10 @@ const authSlice = createSlice({
     // Get current session
     builder
       .addCase(getCurrentSession.pending, (state) => {
-        state.loading = true
+        // Don't blank the app if we already have a stored session/user.
+        if (!state.isAuthenticated) {
+          state.loading = true
+        }
       })
       .addCase(getCurrentSession.fulfilled, (state, action) => {
         state.loading = false
@@ -410,11 +578,15 @@ const authSlice = createSlice({
           state.profile = action.payload.profile
           state.token = action.payload.session.access_token
           state.isAuthenticated = true
+          state.preferences = action.payload.preferences || null
+          state.hasPreferences = action.payload.hasPreferences || false
         } else {
           state.user = null
           state.profile = null
           state.token = null
           state.isAuthenticated = false
+          state.preferences = null
+          state.hasPreferences = false
         }
         state.error = null
       })

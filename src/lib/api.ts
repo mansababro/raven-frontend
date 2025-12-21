@@ -23,8 +23,8 @@ export const apiClient = async (endpoint: string, options: RequestInit = {}) => 
 
   if (!response.ok) {
     if (response.status === 401) {
-      // Token expired or invalid, sign out
-      store.dispatch({ type: 'auth/signOut' })
+      // Backend says unauthorized. Do NOT force a client sign-out here:
+      // backend auth can be misconfigured / temporarily failing and we don't want to nuke session storage.
       throw new Error('Unauthorized')
     }
     const error = await response.json().catch(() => ({ error: 'Request failed' }))

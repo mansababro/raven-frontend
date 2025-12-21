@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { SignUpScreen } from './components/SignUpScreen';
@@ -6,15 +6,20 @@ import { HomeScreen } from './components/HomeScreen';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
 import ProtectedRoute from './components/ProtectedRoute';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { getCurrentSession, handleOAuthCallback } from './store/slices/authSlice';
 import type { AppDispatch, RootState } from './store/store';
 import { supabase } from './lib/supabase';
+import { checkBackendHealth } from './lib/backendHealth';
 
 export default function App() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated, loading } = useSelector((state: RootState) => state.auth);
+  const [backendReachable, setBackendReachable] = useState(true);
+  const [backendChecked, setBackendChecked] = useState(false);
 
   useEffect(() => {
     // Handle OAuth callback from URL hash first
@@ -35,8 +40,11 @@ export default function App() {
         return;
       }
       
-      // No OAuth callback, check for existing session
-      dispatch(getCurrentSession());
+      // No OAuth callback: if we already have a stored session, don't block behind loading.
+      const hasStoredSession = !!localStorage.getItem('raven_session');
+      if (!hasStoredSession) {
+        dispatch(getCurrentSession());
+      }
     };
 
     handleInitialCallback();
@@ -51,7 +59,8 @@ export default function App() {
         navigate('/home');
       } else if (event === 'SIGNED_OUT') {
         // User signed out - navigate to login
-        navigate('/');
+        // localStorage is already cleared by the signOut action
+        navigate('/login', { replace: true });
       } else if (event === 'TOKEN_REFRESHED' && session) {
         // Token refreshed, update session
         dispatch(getCurrentSession());
@@ -63,14 +72,36 @@ export default function App() {
     };
   }, [dispatch, navigate]);
 
+  // Backend health check gate (useful for Vercel deploys so we don't show broken UI).
+  useEffect(() => {
+    if (import.meta.env.VITE_DISABLE_BACKEND_HEALTHCHECK === 'true') {
+      setBackendReachable(true);
+      setBackendChecked(true);
+      return;
+    }
+
+    const run = async () => {
+      const ok = await checkBackendHealth();
+      setBackendReachable(ok);
+      setBackendChecked(true);
+    };
+    run();
+  }, []);
+
   // Handle navigation based on auth state
   useEffect(() => {
     if (loading) return;
 
     if (isAuthenticated) {
       // If on login page and authenticated, redirect to home
-      if (location.pathname === '/') {
+      if (location.pathname === '/' || location.pathname === '/login') {
         navigate('/home');
+      }
+      // If authenticated and on /home, stay on /home (don't redirect)
+    } else {
+      // If not authenticated and on protected route, redirect to login
+      if (location.pathname === '/home') {
+        navigate('/login');
       }
     }
   }, [isAuthenticated, loading, location.pathname, navigate]);
@@ -84,7 +115,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    navigate('/');
+    // Navigation will be handled by the SIGNED_OUT event in onAuthStateChange
+    // This function is just a placeholder for the prop
   };
 
   const handleBackFromPolicy = () => {
@@ -92,12 +124,22 @@ export default function App() {
     if (isAuthenticated) {
       navigate('/home');
     } else {
-      navigate('/');
+      navigate('/login');
     }
   };
 
+  if (backendChecked && !backendReachable) {
+    return (
+      <MaintenanceScreen
+        onRecovered={() => {
+          setBackendReachable(true);
+        }}
+      />
+    );
+  }
+
   return (
-    <div className="size-full overflow-hidden">
+    <div className="min-h-[100svh] w-full overflow-hidden">
       <Routes>
         {/* Public routes */}
         <Route 
@@ -107,12 +149,26 @@ export default function App() {
               <Navigate to="/home" replace />
             ) : (
               <SignUpScreen 
-                onSignUp={() => navigate('/home')}
                 onPrivacyClick={handlePrivacyClick}
                 onTermsClick={handleTermsClick}
               />
             )
           } 
+        />
+
+        {/* Alias login route */}
+        <Route 
+          path="/login" 
+          element={
+            isAuthenticated ? (
+              <Navigate to="/home" replace />
+            ) : (
+              <SignUpScreen 
+                onPrivacyClick={handlePrivacyClick}
+                onTermsClick={handleTermsClick}
+              />
+            )
+          }
         />
         
         {/* Main protected route - handles both onboarding and chat */}
@@ -120,11 +176,13 @@ export default function App() {
           path="/home" 
           element={
             <ProtectedRoute>
-              <HomeScreen 
-                onPrivacyClick={handlePrivacyClick}
-                onTermsClick={handleTermsClick}
-                onLogout={handleLogout}
-              />
+              <ErrorBoundary>
+                <HomeScreen 
+                  onPrivacyClick={handlePrivacyClick}
+                  onTermsClick={handleTermsClick}
+                  onLogout={handleLogout}
+                />
+              </ErrorBoundary>
             </ProtectedRoute>
           } 
         />
@@ -132,13 +190,14 @@ export default function App() {
         {/* Policy pages */}
         <Route path="/privacy" element={<PrivacyPolicy onBack={handleBackFromPolicy} />} />
         <Route path="/terms" element={<TermsOfService onBack={handleBackFromPolicy} />} />
+        <Route path="/maintenance" element={<MaintenanceScreen />} />
         
         {/* Legacy routes - redirect to home for backwards compatibility */}
         <Route path="/onboarding" element={<Navigate to="/home" replace />} />
         <Route path="/chat" element={<Navigate to="/home" replace />} />
         
         {/* Catch all - redirect to login */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </div>
   );

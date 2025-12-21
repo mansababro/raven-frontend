@@ -120,16 +120,27 @@
 }
 
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
     @apply border-border outline-ring/50;
-    font-family: "Audiowide", sans-serif;
+    font-family: "DM Sans", sans-serif !important;
+  }
+
+  /* Ensure `size-full` / `h-full` containers can reliably fill the viewport */
+  html,
+  body,
+  #root {
+    height: 100%;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-family: "Audiowide", sans-serif;
+    font-family: "DM Sans", sans-serif !important;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Prevent white "bleed" if any page wrapper doesn't reach full viewport height */
+    background-color: #121212;
   }
 }
 
@@ -204,4 +215,21 @@ html {
 
 .animate-hover {
   animation: hover 3s ease-in-out infinite;
+}
+
+
+
+.size-full-screen {
+  height: 100vh;
+}
+
+/* HomeScreen-only viewport sizing (avoid impacting other pages using size-full / h-full) */
+.raven-home-viewport {
+  min-height: 100vh;
+  min-height: 100svh;
+}
+
+
+div#root {
+  height: 100vh !important; 
 }

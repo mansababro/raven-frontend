@@ -1,20 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import { Send, Menu, X, ExternalLink } from 'lucide-react';
 import { signOut } from '../store/slices/authSlice';
 import type { AppDispatch, RootState } from '../store/store';
+import { apiClient } from '../lib/api';
 import ravenImage from 'figma:asset/3f1fb69e880c4e8470b4367ae3fec8808445b0a5.png';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
+type PreferenceOption = {
+  id: number;
+  name: string;
+};
+
 type OnboardingMessage = {
   id: number;
   role: 'assistant' | 'user';
   content: string;
   type?: 'question';
-  questionType?: 'music' | 'vibe' | 'artists';
+  questionType?: 'music' | 'vibe' | 'avoid' | 'factors' | 'venueSizes' | 'artists';
 };
 
 type ChatMessage = {
@@ -34,12 +41,13 @@ type HomeScreenProps = {
 // CONSTANTS
 // =============================================================================
 
-const musicGenres = [
+// Fallback options if API fails (will be replaced by API data)
+const fallbackGenres = [
   'Techno', 'Melodic Techno', 'House', 'Tech House', 'Disco', 'DNB/Bass',
   'Ambient', 'Dubstep', 'Garage', 'Rave', 'Hip Hop', 'Eclectic', 'Trance'
 ];
 
-const partyVibes = [
+const fallbackVibes = [
   'Underground / Warehouse',
   'Club / Mainstream',
   'Intimate / Small-Crowd',
@@ -97,15 +105,31 @@ const mockEvents = [
 // COMPONENT
 // =============================================================================
 
-export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {}, onLogout }: HomeScreenProps) {
+export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} }: HomeScreenProps) {
   const dispatch = useDispatch<AppDispatch>();
-  const { user } = useSelector((state: RootState) => state.auth);
+  const navigate = useNavigate();
+  const { user, hasPreferences, loading: authLoading } = useSelector((state: RootState) => state.auth);
   const userEmail = user?.email || 'user@example.com';
 
+  const safeJsonParse = <T,>(value: string | null, fallback: T): T => {
+    if (value == null) return fallback;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  };
+
   // Screen state - determines if we show onboarding or chat
+  // Use API hasPreferences instead of localStorage
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(() => {
-    return localStorage.getItem('raven_onboarding_complete') === 'true';
+    return hasPreferences;
   });
+
+  // Update hasCompletedOnboarding when hasPreferences changes from API
+  useEffect(() => {
+    setHasCompletedOnboarding(hasPreferences);
+  }, [hasPreferences]);
 
   // =============================================================================
   // ONBOARDING STATE
@@ -124,18 +148,40 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
       questionType: 'music'
     }
   ]);
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
-  const [selectedVibes, setSelectedVibes] = useState<string[]>([]);
-  const [currentQuestion, setCurrentQuestion] = useState<'music' | 'vibe' | 'artists' | 'complete'>('music');
+  
+  // Preference options from API
+  const [preferenceOptions, setPreferenceOptions] = useState<{
+    genres: PreferenceOption[];
+    vibes: PreferenceOption[];
+    avoid: PreferenceOption[];
+    factors: PreferenceOption[];
+    venueSizes: PreferenceOption[];
+  }>({
+    genres: [],
+    vibes: [],
+    avoid: [],
+    factors: [],
+    venueSizes: []
+  });
+  
+  // Selected preferences (stored as IDs)
+  const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
+  const [selectedVibes, setSelectedVibes] = useState<number[]>([]);
+  const [selectedAvoid, setSelectedAvoid] = useState<number[]>([]);
+  const [selectedFactors, setSelectedFactors] = useState<number[]>([]);
+  const [selectedVenueSizes, setSelectedVenueSizes] = useState<number[]>([]);
+  
+  const [currentQuestion, setCurrentQuestion] = useState<'music' | 'vibe' | 'avoid' | 'factors' | 'venueSizes' | 'artists' | 'complete'>('music');
   const [artistsInput, setArtistsInput] = useState('');
   const [showSpline, setShowSpline] = useState(true);
+  const [isLoadingOptions, setIsLoadingOptions] = useState(true);
 
   // =============================================================================
   // CHAT STATE
   // =============================================================================
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
-    const userGenres = JSON.parse(localStorage.getItem('raven_user_genres') || '[]');
-    const userVibes = JSON.parse(localStorage.getItem('raven_user_vibes') || '[]');
+    const userGenres = safeJsonParse<unknown[]>(localStorage.getItem('raven_user_genres'), []);
+    const userVibes = safeJsonParse<unknown[]>(localStorage.getItem('raven_user_vibes'), []);
     const userArtists = localStorage.getItem('raven_user_artists') || '';
 
     return [
@@ -161,8 +207,6 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
   });
   const [chatInputValue, setChatInputValue] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<typeof mockEvents[0] | null>(null);
-  const [showLeftArrow, setShowLeftArrow] = useState(false);
-  const [showRightArrow, setShowRightArrow] = useState(true);
 
   // =============================================================================
   // SHARED STATE
@@ -170,13 +214,53 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const eventsScrollRef = useRef<HTMLDivElement>(null);
 
   // =============================================================================
   // EFFECTS
   // =============================================================================
+
+  // Fetch preference options from API on mount
+  useEffect(() => {
+    const fetchPreferenceOptions = async () => {
+      setIsLoadingOptions(true);
+      try {
+        const [genres, vibes, avoid, factors, venueSizes] = await Promise.all([
+          apiClient('/preferences/genres').catch(() => fallbackGenres.map((name, idx) => ({ id: idx + 1, name }))),
+          apiClient('/preferences/vibes').catch(() => fallbackVibes.map((name, idx) => ({ id: idx + 1, name }))),
+          apiClient('/preferences/avoid').catch(() => []),
+          apiClient('/preferences/factors').catch(() => []),
+          apiClient('/preferences/venue-sizes').catch(() => [])
+        ]);
+
+        setPreferenceOptions({
+          genres: Array.isArray(genres) ? genres : [],
+          vibes: Array.isArray(vibes) ? vibes : [],
+          avoid: Array.isArray(avoid) ? avoid : [],
+          factors: Array.isArray(factors) ? factors : [],
+          venueSizes: Array.isArray(venueSizes) ? venueSizes : []
+        });
+      } catch (error) {
+        console.error('Failed to fetch preference options:', error);
+        // Use fallback options
+        setPreferenceOptions({
+          genres: fallbackGenres.map((name, idx) => ({ id: idx + 1, name })),
+          vibes: fallbackVibes.map((name, idx) => ({ id: idx + 1, name })),
+          avoid: [],
+          factors: [],
+          venueSizes: []
+        });
+      } finally {
+        setIsLoadingOptions(false);
+      }
+    };
+
+    if (!hasCompletedOnboarding) {
+      fetchPreferenceOptions();
+    }
+  }, [hasCompletedOnboarding]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -186,24 +270,42 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
   // Handle onboarding completion
   useEffect(() => {
     if (currentQuestion === 'complete') {
-      // Store onboarding data in localStorage
+      // Store onboarding data in localStorage (as fallback/cache)
       localStorage.setItem('raven_onboarding_complete', 'true');
       localStorage.setItem('raven_user_genres', JSON.stringify(selectedGenres));
       localStorage.setItem('raven_user_vibes', JSON.stringify(selectedVibes));
+      localStorage.setItem('raven_user_avoid', JSON.stringify(selectedAvoid));
+      localStorage.setItem('raven_user_factors', JSON.stringify(selectedFactors));
+      localStorage.setItem('raven_user_venue_sizes', JSON.stringify(selectedVenueSizes));
       localStorage.setItem('raven_user_artists', artistsInput);
+
+      // Until backend PATCH/PUT is wired, treat onboarding completion as "has preferences"
+      // so refresh lands in chat instead of restarting onboarding.
+      const hasPrefs =
+        selectedGenres.length > 0 ||
+        selectedVibes.length > 0 ||
+        selectedAvoid.length > 0 ||
+        selectedFactors.length > 0 ||
+        selectedVenueSizes.length > 0 ||
+        !!artistsInput.trim();
+      localStorage.setItem('raven_has_preferences', hasPrefs ? 'true' : 'false');
       
       // Transition to chat after a brief delay
       setTimeout(() => {
         // Update chat messages with new preferences
-        const userGenres = selectedGenres;
-        const userVibes = selectedVibes;
-        const userArtists = artistsInput;
+        const hasPrefs =
+          selectedGenres.length > 0 ||
+          selectedVibes.length > 0 ||
+          selectedAvoid.length > 0 ||
+          selectedFactors.length > 0 ||
+          selectedVenueSizes.length > 0 ||
+          !!artistsInput.trim();
 
         setChatMessages([
           {
             id: 1,
             role: 'assistant',
-            content: userGenres.length > 0 || userVibes.length > 0 || userArtists 
+            content: hasPrefs
               ? 'Based on your taste, here are some events you might love:'
               : 'Here are some events happening soon:'
           },
@@ -220,10 +322,11 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
           }
         ]);
 
+        // Mark onboarding as complete - the API submission already happened
         setHasCompletedOnboarding(true);
-      }, 500);
+      }, 1000);
     }
-  }, [currentQuestion, selectedGenres, selectedVibes, artistsInput]);
+  }, [currentQuestion, selectedGenres, selectedVibes, selectedAvoid, selectedFactors, selectedVenueSizes, artistsInput]);
 
   // Click outside handler for menu
   useEffect(() => {
@@ -252,6 +355,20 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
     const existingScript = document.querySelector('script[src*="spline-viewer"]');
     if (existingScript) {
       (window as any).__SPLINE_LOADING__ = true;
+      existingScript.addEventListener(
+        'load',
+        () => {
+          (window as any).__SPLINE_LOADING__ = false;
+        },
+        { once: true }
+      );
+      existingScript.addEventListener(
+        'error',
+        () => {
+          (window as any).__SPLINE_LOADING__ = false;
+        },
+        { once: true }
+      );
       return;
     }
 
@@ -261,6 +378,9 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
     script.type = 'module';
     script.src = 'https://unpkg.com/@splinetool/viewer@1.9.48/build/spline-viewer.js';
     script.crossOrigin = 'anonymous';
+    script.onload = () => {
+      (window as any).__SPLINE_LOADING__ = false;
+    };
     script.onerror = () => {
       console.error('Failed to load Spline viewer script');
       (window as any).__SPLINE_LOADING__ = false;
@@ -272,20 +392,31 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
   // ONBOARDING HANDLERS
   // =============================================================================
 
-  const handleGenreToggle = (genre: string) => {
-    setSelectedGenres(prev =>
-      prev.includes(genre)
-        ? prev.filter(g => g !== genre)
-        : [...prev, genre]
-    );
+  const handlePreferenceToggle = (
+    category: 'genres' | 'vibes' | 'avoid' | 'factors' | 'venueSizes',
+    id: number
+  ) => {
+    const setters = {
+      genres: setSelectedGenres,
+      vibes: setSelectedVibes,
+      avoid: setSelectedAvoid,
+      factors: setSelectedFactors,
+      venueSizes: setSelectedVenueSizes
   };
 
-  const handleVibeToggle = (vibe: string) => {
-    setSelectedVibes(prev =>
-      prev.includes(vibe)
-        ? prev.filter(v => v !== vibe)
-        : [...prev, vibe]
-    );
+    const setter = setters[category];
+    const isMultiSelect = category !== 'venueSizes'; // venueSizes can be single or multi, defaulting to multi
+
+    if (isMultiSelect) {
+      setter(prev =>
+        prev.includes(id)
+          ? prev.filter(itemId => itemId !== id)
+          : [...prev, id]
+      );
+    } else {
+      // For single select (if needed)
+      setter(prev => prev.includes(id) ? [] : [id]);
+    }
   };
 
   const handleMusicSubmit = () => {
@@ -293,16 +424,21 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
 
     setShowSpline(false);
 
+    const selectedNames = selectedGenres
+      .map(id => preferenceOptions.genres.find(g => g.id === id)?.name)
+      .filter(Boolean)
+      .join(', ');
+
     const userMessage: OnboardingMessage = {
       id: onboardingMessages.length + 1,
       role: 'user',
-      content: selectedGenres.join(', ')
+      content: selectedNames
     };
 
     const nextQuestion: OnboardingMessage = {
       id: onboardingMessages.length + 2,
       role: 'assistant',
-      content: 'What kind of party vibe do you usually go for?',
+      content: 'What kind of party vibe are you looking for?',
       type: 'question',
       questionType: 'vibe'
     };
@@ -314,10 +450,91 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
   const handleVibeSubmit = () => {
     if (selectedVibes.length === 0) return;
 
+    const selectedNames = selectedVibes
+      .map(id => preferenceOptions.vibes.find(v => v.id === id)?.name)
+      .filter(Boolean)
+      .join(', ');
+
     const userMessage: OnboardingMessage = {
       id: onboardingMessages.length + 1,
       role: 'user',
-      content: selectedVibes.join(', ')
+      content: selectedNames
+    };
+
+    const nextQuestion: OnboardingMessage = {
+      id: onboardingMessages.length + 2,
+      role: 'assistant',
+      content: 'What would you like to avoid?',
+      type: 'question',
+      questionType: 'avoid'
+    };
+
+    setOnboardingMessages([...onboardingMessages, userMessage, nextQuestion]);
+    setCurrentQuestion('avoid');
+  };
+
+  const handleAvoidSubmit = () => {
+    const selectedNames = selectedAvoid
+      .map(id => preferenceOptions.avoid.find(a => a.id === id)?.name)
+      .filter(Boolean)
+      .join(', ') || 'Nothing specific';
+
+    const userMessage: OnboardingMessage = {
+      id: onboardingMessages.length + 1,
+      role: 'user',
+      content: selectedNames
+    };
+
+    const nextQuestion: OnboardingMessage = {
+      id: onboardingMessages.length + 2,
+      role: 'assistant',
+      content: 'What matters most to you when choosing an event?',
+      type: 'question',
+      questionType: 'factors'
+    };
+
+    setOnboardingMessages([...onboardingMessages, userMessage, nextQuestion]);
+    setCurrentQuestion('factors');
+  };
+
+  const handleFactorsSubmit = () => {
+    if (selectedFactors.length === 0) return;
+
+    const selectedNames = selectedFactors
+      .map(id => preferenceOptions.factors.find(f => f.id === id)?.name)
+      .filter(Boolean)
+      .join(', ');
+
+    const userMessage: OnboardingMessage = {
+      id: onboardingMessages.length + 1,
+      role: 'user',
+      content: selectedNames
+    };
+
+    const nextQuestion: OnboardingMessage = {
+      id: onboardingMessages.length + 2,
+      role: 'assistant',
+      content: 'What size venues do you prefer?',
+      type: 'question',
+      questionType: 'venueSizes'
+    };
+
+    setOnboardingMessages([...onboardingMessages, userMessage, nextQuestion]);
+    setCurrentQuestion('venueSizes');
+  };
+
+  const handleVenueSizesSubmit = () => {
+    if (selectedVenueSizes.length === 0) return;
+
+    const selectedNames = selectedVenueSizes
+      .map(id => preferenceOptions.venueSizes.find(vs => vs.id === id)?.name)
+      .filter(Boolean)
+      .join(', ');
+
+    const userMessage: OnboardingMessage = {
+      id: onboardingMessages.length + 1,
+      role: 'user',
+      content: selectedNames
     };
 
     const nextQuestion: OnboardingMessage = {
@@ -332,23 +549,44 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
     setCurrentQuestion('artists');
   };
 
-  const handleArtistsSubmit = () => {
-    if (!artistsInput.trim()) return;
+  const handleArtistsSubmit = async () => {
+    const artistsText = artistsInput.trim() || 'None';
 
     const userMessage: OnboardingMessage = {
       id: onboardingMessages.length + 1,
       role: 'user',
-      content: artistsInput
+      content: artistsText
     };
 
     const completeMessage: OnboardingMessage = {
       id: onboardingMessages.length + 2,
       role: 'assistant',
-      content: 'Perfect! Taking you to discover some events...'
+      content: 'Perfect! Saving your preferences and taking you to discover some events...'
     };
 
     setOnboardingMessages([...onboardingMessages, userMessage, completeMessage]);
     setCurrentQuestion('complete');
+
+    // Submit preferences to backend
+    try {
+      setIsLoadingPreferences(true);
+      await apiClient('/preferences', {
+        method: 'POST',
+        body: JSON.stringify({
+          genres: selectedGenres,
+          vibes: selectedVibes,
+          avoid: selectedAvoid,
+          factors: selectedFactors,
+          venueSizes: selectedVenueSizes,
+          artists: artistsText !== 'None' ? artistsText : ''
+        })
+      });
+    } catch (error) {
+      console.error('Failed to save preferences:', error);
+      // Continue even if save fails - preferences are stored in localStorage as fallback
+    } finally {
+      setIsLoadingPreferences(false);
+    }
   };
 
   const handleSkipMusic = () => {
@@ -363,7 +601,7 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
     const nextQuestion: OnboardingMessage = {
       id: onboardingMessages.length + 2,
       role: 'assistant',
-      content: 'What kind of party vibe do you usually go for?',
+      content: 'What kind of party vibe are you looking for?',
       type: 'question',
       questionType: 'vibe'
     };
@@ -382,6 +620,63 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
     const nextQuestion: OnboardingMessage = {
       id: onboardingMessages.length + 2,
       role: 'assistant',
+      content: 'What would you like to avoid?',
+      type: 'question',
+      questionType: 'avoid'
+    };
+
+    setOnboardingMessages([...onboardingMessages, skipMessage, nextQuestion]);
+    setCurrentQuestion('avoid');
+  };
+
+  const handleSkipAvoid = () => {
+    const skipMessage: OnboardingMessage = {
+      id: onboardingMessages.length + 1,
+      role: 'user',
+      content: '(Skipped)'
+    };
+
+    const nextQuestion: OnboardingMessage = {
+      id: onboardingMessages.length + 2,
+      role: 'assistant',
+      content: 'What matters most to you when choosing an event?',
+      type: 'question',
+      questionType: 'factors'
+    };
+
+    setOnboardingMessages([...onboardingMessages, skipMessage, nextQuestion]);
+    setCurrentQuestion('factors');
+  };
+
+  const handleSkipFactors = () => {
+    const skipMessage: OnboardingMessage = {
+      id: onboardingMessages.length + 1,
+      role: 'user',
+      content: '(Skipped)'
+    };
+
+    const nextQuestion: OnboardingMessage = {
+      id: onboardingMessages.length + 2,
+      role: 'assistant',
+      content: 'What size venues do you prefer?',
+      type: 'question',
+      questionType: 'venueSizes'
+    };
+
+    setOnboardingMessages([...onboardingMessages, skipMessage, nextQuestion]);
+    setCurrentQuestion('venueSizes');
+  };
+
+  const handleSkipVenueSizes = () => {
+    const skipMessage: OnboardingMessage = {
+      id: onboardingMessages.length + 1,
+      role: 'user',
+      content: '(Skipped)'
+    };
+
+    const nextQuestion: OnboardingMessage = {
+      id: onboardingMessages.length + 2,
+      role: 'assistant',
       content: 'Are there any artists/DJs you love or follow?',
       type: 'question',
       questionType: 'artists'
@@ -391,7 +686,7 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
     setCurrentQuestion('artists');
   };
 
-  const handleSkipArtists = () => {
+  const handleSkipArtists = async () => {
     const skipMessage: OnboardingMessage = {
       id: onboardingMessages.length + 1,
       role: 'user',
@@ -401,11 +696,31 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
     const completeMessage: OnboardingMessage = {
       id: onboardingMessages.length + 2,
       role: 'assistant',
-      content: 'No worries! Taking you to discover some events...'
+      content: 'No worries! Saving your preferences and taking you to discover some events...'
     };
 
     setOnboardingMessages([...onboardingMessages, skipMessage, completeMessage]);
     setCurrentQuestion('complete');
+
+    // Submit preferences to backend
+    try {
+      setIsLoadingPreferences(true);
+      await apiClient('/preferences', {
+        method: 'POST',
+        body: JSON.stringify({
+          genres: selectedGenres,
+          vibes: selectedVibes,
+          avoid: selectedAvoid,
+          factors: selectedFactors,
+          venueSizes: selectedVenueSizes,
+          artists: ''
+        })
+      });
+    } catch (error) {
+      console.error('Failed to save preferences:', error);
+    } finally {
+      setIsLoadingPreferences(false);
+    }
   };
 
   const handleOnboardingKeyPress = (e: React.KeyboardEvent) => {
@@ -450,49 +765,7 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
     }
   };
 
-  const handleScrollToNext = () => {
-    if (eventsScrollRef.current) {
-      const cardWidth = 320;
-      const gap = 16;
-      const scrollAmount = cardWidth + gap;
-      
-      eventsScrollRef.current.scrollBy({
-        left: scrollAmount,
-        behavior: 'smooth'
-      });
-    }
-  };
-
-  const handleScrollToPrevious = () => {
-    if (eventsScrollRef.current) {
-      const cardWidth = 320;
-      const gap = 16;
-      const scrollAmount = cardWidth + gap;
-      
-      eventsScrollRef.current.scrollBy({
-        left: -scrollAmount,
-        behavior: 'smooth'
-      });
-    }
-  };
-
-  const handleScroll = () => {
-    if (eventsScrollRef.current) {
-      const currentScrollLeft = eventsScrollRef.current.scrollLeft;
-
-      if (currentScrollLeft > 0) {
-        setShowLeftArrow(true);
-      } else {
-        setShowLeftArrow(false);
-      }
-
-      if (currentScrollLeft < eventsScrollRef.current.scrollWidth - eventsScrollRef.current.clientWidth) {
-        setShowRightArrow(true);
-      } else {
-        setShowRightArrow(false);
-      }
-    }
-  };
+  // (events carousel removed; cards are rendered as a grid)
 
   // =============================================================================
   // SHARED HANDLERS
@@ -500,11 +773,8 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
 
   const handleLogout = async () => {
     await dispatch(signOut());
-    localStorage.removeItem('raven_onboarding_complete');
-    localStorage.removeItem('raven_user_genres');
-    localStorage.removeItem('raven_user_vibes');
-    localStorage.removeItem('raven_user_artists');
-    onLogout?.();
+    // Ensure we immediately land on the login screen after logout
+    navigate('/login', { replace: true });
   };
 
   const handleDeleteAccount = async () => {
@@ -581,7 +851,7 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
         )}
       </div>
       <div className="relative rounded-[8px] h-[20px]">
-        <div aria-hidden="true" className="absolute border border-solid border-white inset-0 pointer-events-none rounded-[8px]" />
+        <div aria-hidden="true" className="absolute border border-solid border-white inset-0 pointer-events-none rounded-[8px]"/>
         <div className="size-full">
           <div className="content-stretch flex flex-col items-center justify-center px-[12px] relative size-full">
             <div className="h-[15px] relative shrink-0">
@@ -828,8 +1098,6 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-8 flex flex-col relative">
         <div className="max-w-[800px] mx-auto w-full">
-          <div className="hidden md:block h-[20vh]"></div>
-          
           <div className="space-y-6 relative z-20 pointer-events-none">
           {onboardingMessages.map((message, index) => {
             const lastAssistantMessageIndex = onboardingMessages.map((m, i) => ({ role: m.role, index: i })).reverse().find(m => m.role === 'assistant')?.index;
@@ -888,19 +1156,25 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
                 {/* Music Genre Selection */}
                 {message.questionType === 'music' && currentQuestion === 'music' && (
                   <div className="mt-4 space-y-3 pointer-events-auto">
+                    {isLoadingOptions ? (
+                      <div className="text-[#9c9aa5] font-['Saira:Regular',sans-serif] text-[14px]">
+                        Loading genres...
+                      </div>
+                    ) : (
+                      <>
                     <div className="flex flex-wrap gap-2">
-                      {musicGenres.map((genre) => (
+                          {preferenceOptions.genres.map((genre) => (
                         <button
-                          key={genre}
-                          onClick={() => handleGenreToggle(genre)}
+                              key={genre.id}
+                              onClick={() => handlePreferenceToggle('genres', genre.id)}
                           className={`py-[6px] px-[18px] rounded-[8px] transition-all flex items-center justify-center ${
-                            selectedGenres.includes(genre)
+                                selectedGenres.includes(genre.id)
                               ? 'bg-[#8f7db4] text-[#121212]'
                               : 'bg-[#1f1e1e] text-white hover:bg-[linear-gradient(90deg,rgba(143,125,180,0.15)_0%,rgba(143,125,180,0.15)_100%),linear-gradient(90deg,rgb(31,30,30)_0%,rgb(31,30,30)_100%)]'
                           }`}
                         >
                           <p className="font-['Saira:Regular',sans-serif] text-[13px] leading-[19.5px]">
-                            {genre}
+                                {genre.name}
                           </p>
                         </button>
                       ))}
@@ -923,6 +1197,8 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
                           Skip
                         </p>
                       </button>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -930,19 +1206,25 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
                 {/* Party Vibe Selection */}
                 {message.questionType === 'vibe' && currentQuestion === 'vibe' && (
                   <div className="mt-4 space-y-3 pointer-events-auto">
+                    {isLoadingOptions ? (
+                      <div className="text-[#9c9aa5] font-['Saira:Regular',sans-serif] text-[14px]">
+                        Loading vibes...
+                      </div>
+                    ) : (
+                      <>
                     <div className="flex flex-wrap gap-2">
-                      {partyVibes.map((vibe) => (
+                          {preferenceOptions.vibes.map((vibe) => (
                         <button
-                          key={vibe}
-                          onClick={() => handleVibeToggle(vibe)}
+                              key={vibe.id}
+                              onClick={() => handlePreferenceToggle('vibes', vibe.id)}
                           className={`py-[6px] px-[18px] rounded-[8px] transition-all flex items-center justify-center ${
-                            selectedVibes.includes(vibe)
+                                selectedVibes.includes(vibe.id)
                               ? 'bg-[#8f7db4] text-[#121212]'
                               : 'bg-[#1f1e1e] text-white hover:bg-[linear-gradient(90deg,rgba(143,125,180,0.15)_0%,rgba(143,125,180,0.15)_100%),linear-gradient(90deg,rgb(31,30,30)_0%,rgb(31,30,30)_100%)]'
                           }`}
                         >
                           <p className="font-['Saira:Regular',sans-serif] text-[13px] leading-[19.5px]">
-                            {vibe}
+                                {vibe.name}
                           </p>
                         </button>
                       ))}
@@ -965,6 +1247,155 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
                           Skip
                         </p>
                       </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Avoid Items Selection */}
+                {message.questionType === 'avoid' && currentQuestion === 'avoid' && (
+                  <div className="mt-4 space-y-3 pointer-events-auto">
+                    {isLoadingOptions ? (
+                      <div className="text-[#9c9aa5] font-['Saira:Regular',sans-serif] text-[14px]">
+                        Loading options...
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap gap-2">
+                          {preferenceOptions.avoid.map((item) => (
+                            <button
+                              key={item.id}
+                              onClick={() => handlePreferenceToggle('avoid', item.id)}
+                              className={`py-[6px] px-[18px] rounded-[8px] transition-all flex items-center justify-center border ${
+                                selectedAvoid.includes(item.id)
+                                  ? 'bg-[#dc3545] text-white border-[#dc3545]'
+                                  : 'bg-[#1f1e1e] text-white border-[#3a3a3a] hover:border-[#dc3545] hover:bg-[rgba(220,53,69,0.1)]'
+                              }`}
+                            >
+                              <p className="font-['Saira:Regular',sans-serif] text-[13px] leading-[19.5px]">
+                                {item.name}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={handleAvoidSubmit}
+                          className="bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-6 py-2 rounded-[8px]"
+                        >
+                          <p className="font-['Saira:Regular',sans-serif] text-[14px] text-[#121212]">
+                            Continue
+                          </p>
+                        </button>
+                        <button
+                          onClick={handleSkipAvoid}
+                          className="rounded-[8px] px-[14.5px] py-[8px] ml-2"
+                        >
+                          <p className="font-['Saira:Regular',sans-serif] leading-[21px] text-[14px] text-[#9c9aa5]">
+                            Skip
+                          </p>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Party Factors Selection */}
+                {message.questionType === 'factors' && currentQuestion === 'factors' && (
+                  <div className="mt-4 space-y-3 pointer-events-auto">
+                    {isLoadingOptions ? (
+                      <div className="text-[#9c9aa5] font-['Saira:Regular',sans-serif] text-[14px]">
+                        Loading factors...
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap gap-2">
+                          {preferenceOptions.factors.map((factor) => (
+                            <button
+                              key={factor.id}
+                              onClick={() => handlePreferenceToggle('factors', factor.id)}
+                              className={`py-[6px] px-[18px] rounded-[8px] transition-all flex items-center justify-center ${
+                                selectedFactors.includes(factor.id)
+                                  ? 'bg-[#8f7db4] text-[#121212]'
+                                  : 'bg-[#1f1e1e] text-white hover:bg-[linear-gradient(90deg,rgba(143,125,180,0.15)_0%,rgba(143,125,180,0.15)_100%),linear-gradient(90deg,rgb(31,30,30)_0%,rgb(31,30,30)_100%)]'
+                              }`}
+                            >
+                              <p className="font-['Saira:Regular',sans-serif] text-[13px] leading-[19.5px]">
+                                {factor.name}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                        {selectedFactors.length > 0 ? (
+                          <button
+                            onClick={handleFactorsSubmit}
+                            className="bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-6 py-2 rounded-[8px]"
+                          >
+                            <p className="font-['Saira:Regular',sans-serif] text-[14px] text-[#121212]">
+                              Continue
+                            </p>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleSkipFactors}
+                            className="rounded-[8px] px-[14.5px] py-[8px]"
+                          >
+                            <p className="font-['Saira:Regular',sans-serif] leading-[21px] text-[14px] text-[#9c9aa5]">
+                              Skip
+                            </p>
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Venue Sizes Selection */}
+                {message.questionType === 'venueSizes' && currentQuestion === 'venueSizes' && (
+                  <div className="mt-4 space-y-3 pointer-events-auto">
+                    {isLoadingOptions ? (
+                      <div className="text-[#9c9aa5] font-['Saira:Regular',sans-serif] text-[14px]">
+                        Loading venue sizes...
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap gap-2">
+                          {preferenceOptions.venueSizes.map((size) => (
+                            <button
+                              key={size.id}
+                              onClick={() => handlePreferenceToggle('venueSizes', size.id)}
+                              className={`py-[6px] px-[18px] rounded-[8px] transition-all flex items-center justify-center ${
+                                selectedVenueSizes.includes(size.id)
+                                  ? 'bg-[#8f7db4] text-[#121212]'
+                                  : 'bg-[#1f1e1e] text-white hover:bg-[linear-gradient(90deg,rgba(143,125,180,0.15)_0%,rgba(143,125,180,0.15)_100%),linear-gradient(90deg,rgb(31,30,30)_0%,rgb(31,30,30)_100%)]'
+                              }`}
+                            >
+                              <p className="font-['Saira:Regular',sans-serif] text-[13px] leading-[19.5px]">
+                                {size.name}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                        {selectedVenueSizes.length > 0 ? (
+                          <button
+                            onClick={handleVenueSizesSubmit}
+                            className="bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-6 py-2 rounded-[8px]"
+                          >
+                            <p className="font-['Saira:Regular',sans-serif] text-[14px] text-[#121212]">
+                              Continue
+                            </p>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleSkipVenueSizes}
+                            className="rounded-[8px] px-[14.5px] py-[8px]"
+                          >
+                            <p className="font-['Saira:Regular',sans-serif] leading-[21px] text-[14px] text-[#9c9aa5]">
+                              Skip
+                            </p>
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -1059,96 +1490,52 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
 
                 {/* Event Cards */}
                 {message.type === 'events' && (
-                  <div className="mt-4 -mx-4 md:-mx-6 pointer-events-auto relative">
-                    <div 
-                      className="overflow-x-auto pb-2 scroll-smooth" 
-                      ref={eventsScrollRef} 
-                      onScroll={handleScroll}
-                      style={{ 
-                        WebkitOverflowScrolling: 'touch',
-                        scrollSnapType: 'x mandatory',
-                        scrollBehavior: 'smooth'
-                      }}
-                    >
-                      <div className="flex gap-4 min-w-max" style={{ paddingLeft: 'calc(50vw - 140px)', paddingRight: 'calc(50vw - 140px)' }}>
-                        {mockEvents.map((event) => (
+                  <div className="mt-4 pointer-events-auto">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {mockEvents.map((event) => (
+                        <div
+                          key={event.id}
+                          onClick={() => setSelectedEvent(event)}
+                          className="relative w-full h-[180px] rounded-[12px] overflow-hidden border border-[#3a3a3a] hover:border-[#ffaeaf] transition-colors cursor-pointer"
+                        >
                           <div
-                            key={event.id}
-                            onClick={() => setSelectedEvent(event)}
-                            className="relative w-[280px] md:w-[320px] h-[180px] rounded-[12px] overflow-hidden border border-[#3a3a3a] hover:border-[#ffaeaf] transition-colors cursor-pointer shrink-0"
-                            style={{ scrollSnapAlign: 'center', scrollSnapStop: 'always' }}
-                          >
-                            <div
-                              className="absolute inset-0 bg-cover bg-center"
-                              style={{
-                                backgroundImage: `url(${event.image})`,
-                                filter: 'blur(8px)',
-                                transform: 'scale(1.1)'
-                              }}
-                            />
-                            
-                            <div className="absolute inset-0 bg-black/75" />
-                            
-                            <div className="relative h-full p-5 flex flex-col justify-between">
-                              <div>
-                                <p className="font-['Audiowide:Regular',sans-serif] text-[18px] text-white mb-2 drop-shadow-lg">
-                                  {event.name}
+                            className="absolute inset-0 bg-cover bg-center"
+                            style={{
+                              backgroundImage: `url(${event.image})`,
+                              filter: 'blur(8px)',
+                              transform: 'scale(1.1)'
+                            }}
+                          />
+
+                          <div className="absolute inset-0 bg-black/75" />
+
+                          <div className="relative h-full p-5 flex flex-col justify-between">
+                            <div>
+                              <p className="font-['Audiowide:Regular',sans-serif] text-[18px] text-white mb-2 drop-shadow-lg">
+                                {event.name}
+                              </p>
+                              <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#ffaeaf] mb-1 drop-shadow-lg">
+                                {event.date}
+                              </p>
+                              <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#e0e0e0] drop-shadow-lg">
+                                {event.venue}
+                              </p>
+                            </div>
+
+                            <div className="w-full">
+                              <p className="font-['Saira:Regular',sans-serif] text-[11px] text-[#b0b0b0] uppercase tracking-wider drop-shadow-lg mb-2">
+                                {event.genres.join(' • ')}
+                              </p>
+                              <button className="bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-4 py-2 rounded-[8px] w-full">
+                                <p className="font-['Saira:Regular',sans-serif] text-[12px] text-[#121212]">
+                                  Details and lineup
                                 </p>
-                                <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#ffaeaf] mb-1 drop-shadow-lg">
-                                  {event.date}
-                                </p>
-                                <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#e0e0e0] drop-shadow-lg">
-                                  {event.venue}
-                                </p>
-                              </div>
-                              
-                              <div className="w-full">
-                                <p className="font-['Saira:Regular',sans-serif] text-[11px] text-[#b0b0b0] uppercase tracking-wider drop-shadow-lg mb-2">
-                                  {event.genres.join(' • ')}
-                                </p>
-                                <button className="bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-4 py-2 rounded-[8px] w-full">
-                                  <p className="font-['Saira:Regular',sans-serif] text-[12px] text-[#121212]">
-                                    Details and lineup
-                                  </p>
-                                </button>
-                              </div>
+                              </button>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ))}
                     </div>
-                    
-                    {showRightArrow && (
-                      <button
-                        onClick={handleScrollToNext}
-                        className="absolute right-0 top-0 h-[184px] w-24 flex items-center justify-end pr-6 pointer-events-auto group"
-                        style={{
-                          background: 'linear-gradient(270deg, rgba(18, 18, 18, 0.95) 0%, rgba(18, 18, 18, 0.7) 50%, rgba(18, 18, 18, 0) 100%)'
-                        }}
-                      >
-                        <div className="bg-[#ffaeaf] hover:bg-[#ff9e9f] rounded-full p-2 shadow-lg transition-colors">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M9 18L15 12L9 6" stroke="#121212" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </div>
-                      </button>
-                    )}
-                    
-                    {showLeftArrow && (
-                      <button
-                        onClick={handleScrollToPrevious}
-                        className="absolute left-0 top-0 h-[184px] w-24 flex items-center justify-start pl-6 pointer-events-auto group"
-                        style={{
-                          background: 'linear-gradient(90deg, rgba(18, 18, 18, 0.95) 0%, rgba(18, 18, 18, 0.7) 50%, rgba(18, 18, 18, 0) 100%)'
-                        }}
-                      >
-                        <div className="bg-[#ffaeaf] hover:bg-[#ff9e9f] rounded-full p-2 shadow-lg transition-colors">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M15 18L9 12L15 6" stroke="#121212" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </div>
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -1187,11 +1574,31 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {},
   );
 
   // =============================================================================
+  // LOADING OVERLAY
+  // =============================================================================
+
+  const renderLoadingOverlay = () => {
+    // Show loading overlay when auth is loading OR when loading preferences from API
+    if (!authLoading && !isLoadingPreferences) return null;
+    
+    return (
+      <div className="fixed inset-0 z-[99999] bg-[#121212] flex items-center justify-center pointer-events-auto">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-[#3a3a3a] border-t-[#ffaeaf] mx-auto mb-6"></div>
+          <p className="font-['Saira:Regular',sans-serif] text-[16px] text-white">Loading...</p>
+        </div>
+      </div>
+    );
+  };
+
+  // =============================================================================
   // MAIN RENDER
   // =============================================================================
 
   return (
-    <div className="bg-[#121212] relative size-full flex flex-col overflow-hidden max-w-full">
+    <div className="bg-[#121212] relative w-full min-h-[100svh] raven-home-viewport flex flex-col overflow-hidden max-w-full">
+      {renderLoadingOverlay()}
+      
       {renderHeader()}
       
       {hasCompletedOnboarding ? renderChat() : renderOnboarding()}

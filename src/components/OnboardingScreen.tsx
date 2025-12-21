@@ -284,12 +284,7 @@ export function OnboardingScreen({ onPrivacyClick = () => {}, onTermsClick = () 
 
   const handleLogout = async () => {
     await dispatch(signOut());
-    // Clear all raven-related localStorage data
-    localStorage.removeItem('raven_onboarding_complete');
-    localStorage.removeItem('raven_user_genres');
-    localStorage.removeItem('raven_user_vibes');
-    localStorage.removeItem('raven_user_artists');
-    navigate('/');
+    navigate('/login', { replace: true });
   };
 
   const handleDeleteAccount = async () => {
