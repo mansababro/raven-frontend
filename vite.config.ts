@@ -3,6 +3,8 @@
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
 
+  const isCI = !!process.env.CI || process.env.VERCEL === '1';
+
   export default defineConfig({
     plugins: [react()],
     resolve: {
@@ -60,6 +62,7 @@
     },
     server: {
       port: 3000,
-      open: true,
+      // Vercel/CI environments don't have xdg-open, so auto-open will crash.
+      open: !isCI,
     },
   });
