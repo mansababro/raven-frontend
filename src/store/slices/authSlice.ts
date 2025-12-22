@@ -243,11 +243,12 @@ export const signInWithGoogle = createAsyncThunk(
   'auth/signInWithGoogle',
   async (_, { rejectWithValue }) => {
     try {
+      const siteUrl = (import.meta.env.VITE_SITE_URL || window.location.origin).replace(/\/$/, '')
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           // Send users back to /home so we land on the protected route
-          redirectTo: `${window.location.origin}/home`
+          redirectTo: `${siteUrl}/home`
         }
       })
 
