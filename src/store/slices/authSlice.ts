@@ -334,11 +334,21 @@ export const handleOAuthCallback = createAsyncThunk(
 export const signOut = createAsyncThunk(
   'auth/signOut',
   async () => {
-    // Best-effort server sign out; even if it fails we still clear client state/storage.
+    // Best-effort sign out; even if network/global sign out fails we must clear local session + storage.
     try {
-      const { error } = await supabase.auth.signOut()
-      if (error) {
-        console.warn('Supabase signOut failed:', error)
+      // Ensure we stop background refresh first (prevents token refresh repopulating storage).
+      ;(supabase.auth as any).stopAutoRefresh?.()
+
+      // Always clear local session first (works even if backend is unreachable).
+      const localRes = await supabase.auth.signOut({ scope: 'local' } as any)
+      if (localRes?.error) {
+        console.warn('Supabase local signOut failed:', localRes.error)
+      }
+
+      // Then attempt global sign out (best effort).
+      const globalRes = await supabase.auth.signOut({ scope: 'global' } as any)
+      if (globalRes?.error) {
+        console.warn('Supabase global signOut failed:', globalRes.error)
       }
     } catch (error) {
       console.warn('Supabase signOut threw:', error)
@@ -351,6 +361,20 @@ export const signOut = createAsyncThunk(
       }
       try {
         sessionStorage.clear()
+      } catch {
+        // ignore
+      }
+
+      // Extra safety: clear again on next tick in case any async persistence runs after signOut.
+      try {
+        setTimeout(() => {
+          try {
+            localStorage.clear()
+            sessionStorage.clear()
+          } catch {
+            // ignore
+          }
+        }, 0)
       } catch {
         // ignore
       }
