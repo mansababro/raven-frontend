@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { SignUpScreen } from './components/SignUpScreen';
@@ -8,7 +8,7 @@ import { TermsOfService } from './components/TermsOfService';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
-import { getCurrentSession, handleOAuthCallback } from './store/slices/authSlice';
+import { getCurrentSession, handleOAuthCallback, refreshProfile } from './store/slices/authSlice';
 import type { AppDispatch, RootState } from './store/store';
 import { supabase } from './lib/supabase';
 import { checkBackendHealth } from './lib/backendHealth';
@@ -20,6 +20,7 @@ export default function App() {
   const { isAuthenticated, loading } = useSelector((state: RootState) => state.auth);
   const [backendReachable, setBackendReachable] = useState(true);
   const [backendChecked, setBackendChecked] = useState(false);
+  const didRefreshProfileRef = useRef(false);
 
   useEffect(() => {
     // Handle OAuth callback from URL hash first
@@ -105,6 +106,17 @@ export default function App() {
       }
     }
   }, [isAuthenticated, loading, location.pathname, navigate]);
+
+  // On refresh/deep-link into /home, ensure we attempt to fetch the latest profile/preferences.
+  // This helps avoid "blank/glitchy" states when local cached prefs diverge from backend.
+  useEffect(() => {
+    if (loading) return;
+    if (!isAuthenticated) return;
+    if (location.pathname !== '/home') return;
+    if (didRefreshProfileRef.current) return;
+    didRefreshProfileRef.current = true;
+    dispatch(refreshProfile());
+  }, [dispatch, isAuthenticated, loading, location.pathname]);
 
   const handlePrivacyClick = () => {
     navigate('/privacy');
