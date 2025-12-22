@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { getCurrentSession, handleOAuthCallback } from '../store/slices/authSlice'
@@ -13,7 +13,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { isAuthenticated, loading } = useSelector((state: RootState) => state.auth)
   const hasOAuthHash = typeof window !== 'undefined' && window.location.hash.includes('access_token')
   const didInitRef = useRef(false)
-  const [resolvedAuth, setResolvedAuth] = useState(false)
 
   // Ensure we always resolve auth on /home refresh, including OAuth hash callbacks.
   // This prevents getting stuck with a lingering "#access_token=..." hash.
@@ -35,8 +34,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
         if (hasOAuthHash) {
           window.history.replaceState(null, '', window.location.pathname)
         }
-      } finally {
-        setResolvedAuth(true)
       }
     }
 
@@ -44,7 +41,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }, [dispatch, hasOAuthHash])
 
   // Show loading while checking auth state
-  if (!resolvedAuth || loading || hasOAuthHash) {
+  if (loading || hasOAuthHash) {
     return (
       <div className="fixed inset-0 z-[99999] bg-[#121212] flex items-center justify-center">
         <div className="text-center">
