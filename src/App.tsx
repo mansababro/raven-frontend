@@ -8,6 +8,7 @@ import { TermsOfService } from './components/TermsOfService';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
+import AuthCallback from './pages/AuthCallback';
 import { getCurrentSession, handleOAuthCallback } from './store/slices/authSlice';
 import type { AppDispatch, RootState } from './store/store';
 import { supabase } from './lib/supabase';
@@ -170,6 +171,9 @@ export default function App() {
             )
           }
         />
+        
+        {/* OAuth callback */}
+        <Route path="/auth/callback" element={<AuthCallback />} />
         
         {/* Main protected route - handles both onboarding and chat */}
         <Route 

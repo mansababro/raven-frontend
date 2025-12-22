@@ -249,8 +249,9 @@ export const signInWithGoogle = createAsyncThunk(
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          // Send users back to /home so we land on the protected route
-          redirectTo: `${siteUrl}/home`
+          // Send users back to the dedicated callback route.
+          // The callback page will process the session and then redirect to /home.
+          redirectTo: `${siteUrl}/auth/callback`
         }
       })
 

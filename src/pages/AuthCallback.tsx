@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import { handleOAuthCallback } from '../store/slices/authSlice'
@@ -13,7 +13,7 @@ const AuthCallback = () => {
     const processCallback = async () => {
       const result = await dispatch(handleOAuthCallback())
       if (handleOAuthCallback.fulfilled.match(result)) {
-        navigate('/chat')
+        navigate('/home', { replace: true })
       }
     }
     processCallback()
@@ -36,10 +36,10 @@ const AuthCallback = () => {
         <div className="text-center">
           <p className="text-[#ffaeaf] mb-4">Error: {error}</p>
           <button 
-            onClick={() => navigate('/signup')}
+            onClick={() => navigate('/login')}
             className="px-6 py-3 rounded-lg bg-[#ffaeaf] text-[#121212] font-medium hover:bg-[#ff9e9f]"
           >
-            Go to Sign Up
+            Go to Login
           </button>
         </div>
       </div>
