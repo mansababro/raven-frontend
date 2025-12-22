@@ -219,17 +219,15 @@ export const signIn = createAsyncThunk(
         }
       } catch (profileError) {
         console.warn('Failed to fetch profile on signin:', profileError)
-        try {
-          localStorage.setItem('raven_has_preferences', 'false')
-        } catch {
-          // ignore
-        }
+        // Backend might be unreachable (CORS / downtime). Don't regress the UX by flipping
+        // an already-onboarded user back to onboarding on refresh.
+        const cachedHasPreferences = loadStoredHasPreferences()
         return {
           user: data.user!,
           session: data.session!,
           profile: null,
           preferences: null,
-          hasPreferences: false,
+          hasPreferences: cachedHasPreferences,
         }
       }
     } catch (error: any) {
@@ -249,9 +247,8 @@ export const signInWithGoogle = createAsyncThunk(
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          // Send users back to the dedicated callback route.
-          // The callback page will process the session and then redirect to /home.
-          redirectTo: `${siteUrl}/auth/callback`
+          // Send users back to /home so we land on the protected route
+          redirectTo: `${siteUrl}/home`
         }
       })
 
@@ -300,7 +297,7 @@ export const handleOAuthCallback = createAsyncThunk(
       // Fetch full user profile from backend, but don't fail if it errors
       let profile = null
       let preferences = null
-      let hasPreferences = false
+      let hasPreferences = loadStoredHasPreferences()
       
       try {
         const profileData: any = await fetchJsonWithTimeout(
@@ -387,7 +384,7 @@ export const getCurrentSession = createAsyncThunk(
       // Fetch full user profile from backend, but don't fail if it errors
       let profile = null
       let preferences = null
-      let hasPreferences = false
+      let hasPreferences = loadStoredHasPreferences()
       
       try {
         const profileData: any = await fetchJsonWithTimeout(
