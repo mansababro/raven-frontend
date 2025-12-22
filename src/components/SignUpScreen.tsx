@@ -1,10 +1,11 @@
-import { ChevronRight, ChevronDown } from 'lucide-react';
+import { ChevronRight, ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { signIn, signUp, signInWithGoogle, clearError } from '../store/slices/authSlice';
 import type { AppDispatch, RootState } from '../store/store';
 import svgPaths from "../imports/svg-p6w04fvk13";
+import { toast } from "sonner@2.0.3";
 
 interface SignUpScreenProps {
   onPrivacyClick: () => void;
@@ -20,6 +21,7 @@ export function SignUpScreen({ onPrivacyClick, onTermsClick }: SignUpScreenProps
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Clear error and form when switching tabs
   const handleTabChange = (tab: 'signup' | 'signin') => {
@@ -73,11 +75,17 @@ export function SignUpScreen({ onPrivacyClick, onTermsClick }: SignUpScreenProps
       // OAuth will redirect immediately, so we don't need to handle the result
       // The redirect will happen automatically via Supabase
       if (signInWithGoogle.rejected.match(result)) {
-        // Error is already handled in the Redux state
+        const message = (result.payload as string) || "Google sign-in failed";
+        toast.error(message, {
+          style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+        });
       }
     } catch (error) {
       // Error is handled by Redux
       console.error('Google auth error:', error);
+      toast.error("Google sign-in failed", {
+        style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+      });
     }
   };
 
@@ -92,13 +100,26 @@ export function SignUpScreen({ onPrivacyClick, onTermsClick }: SignUpScreenProps
           if (result.payload.session) {
             // User is immediately authenticated
             // Navigation will happen via useEffect in App.tsx
+            toast.success("Account created", {
+              description: "You're signed in.",
+              style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+            });
           } else {
             // Email confirmation might be required
             // Still clear the form and show success message
             setEmail('');
             setPassword('');
             setName('');
+            toast.success("Check your email", {
+              description: "Confirm your email to finish creating your account.",
+              style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+            });
           }
+        } else if (signUp.rejected.match(result)) {
+          const message = (result.payload as string) || "Registration failed";
+          toast.error(message, {
+            style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+          });
         }
       } else {
         const result = await dispatch(signIn({ email, password }));
@@ -106,11 +127,23 @@ export function SignUpScreen({ onPrivacyClick, onTermsClick }: SignUpScreenProps
           // User is authenticated, navigation will happen via useEffect in App.tsx
           setEmail('');
           setPassword('');
+          toast.success("Welcome back", {
+            description: "You're logged in.",
+            style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+          });
+        } else if (signIn.rejected.match(result)) {
+          const message = (result.payload as string) || "Login failed";
+          toast.error(message, {
+            style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+          });
         }
       }
     } catch (error) {
       // Error is already handled in Redux state
       console.error('Auth error:', error);
+      toast.error("Something went wrong", {
+        style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+      });
     }
   };
 
@@ -290,15 +323,23 @@ export function SignUpScreen({ onPrivacyClick, onTermsClick }: SignUpScreenProps
                   </button>
                 )}
               </div>
-              <div className="bg-[#1f1e1e] h-[48px] rounded-[8px] border border-[#ffaeaf] focus-within:shadow-[0px_4px_8px_0px_rgba(255,174,175,0.2)] transition-shadow">
+              <div className="bg-[#1f1e1e] h-[48px] rounded-[8px] border border-[#ffaeaf] focus-within:shadow-[0px_4px_8px_0px_rgba(255,174,175,0.2)] transition-shadow flex items-center pr-3" style={{ padding:'10px'}}>
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="Enter Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="w-full h-full bg-transparent px-[16px] py-[8px] font-['Saira:Regular',sans-serif] leading-[normal] text-[16px] text-white placeholder:text-[#9c9aa5] outline-none"
+                  className="flex-1 h-full bg-transparent px-[16px] py-[8px] font-['Saira:Regular',sans-serif] leading-[normal] text-[16px] text-white placeholder:text-[#9c9aa5] outline-none"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="h-full w-[44px] mr-1 flex items-center justify-center text-[#9c9aa5] hover:text-[#ffaeaf] transition-colors"
+                >
+                  {showPassword ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+                </button>
               </div>
             </div>
 

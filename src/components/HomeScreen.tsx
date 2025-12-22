@@ -3,9 +3,11 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { Send, Menu, X, ExternalLink } from 'lucide-react';
 import { signOut } from '../store/slices/authSlice';
+import { refreshProfile } from '../store/slices/authSlice';
 import type { AppDispatch, RootState } from '../store/store';
 import { apiClient } from '../lib/api';
 import ravenImage from 'figma:asset/3f1fb69e880c4e8470b4367ae3fec8808445b0a5.png';
+import { toast } from "sonner@2.0.3";
 
 // =============================================================================
 // TYPES
@@ -567,22 +569,39 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
     setOnboardingMessages([...onboardingMessages, userMessage, completeMessage]);
     setCurrentQuestion('complete');
 
-    // Submit preferences to backend
+    // Submit user profile + preferences to backend
     try {
       setIsLoadingPreferences(true);
-      await apiClient('/preferences', {
-        method: 'POST',
+      const userId = user?.id;
+      if (!userId) throw new Error('No user id');
+
+      await apiClient(`/users/${userId}`, {
+        method: 'PATCH',
         body: JSON.stringify({
+          // Required by backend (can be null)
+          venue_size_id: selectedVenueSizes[0] ?? null,
+          // Free text field; we use the artists question as "additional context"
+          additional_context: artistsText !== 'None' ? artistsText : '',
           genres: selectedGenres,
           vibes: selectedVibes,
           avoid: selectedAvoid,
           factors: selectedFactors,
-          venueSizes: selectedVenueSizes,
-          artists: artistsText !== 'None' ? artistsText : ''
-        })
+        }),
+      });
+
+      // Pull latest preferences/profile back into Redux so /home instantly flips to chat reliably
+      await dispatch(refreshProfile());
+
+      toast.success("Preferences saved", {
+        description: "You're all set.",
+        style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
       });
     } catch (error) {
       console.error('Failed to save preferences:', error);
+      toast.error("Couldn't save preferences", {
+        description: "Please try again.",
+        style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+      });
       // Continue even if save fails - preferences are stored in localStorage as fallback
     } finally {
       setIsLoadingPreferences(false);
@@ -702,22 +721,36 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
     setOnboardingMessages([...onboardingMessages, skipMessage, completeMessage]);
     setCurrentQuestion('complete');
 
-    // Submit preferences to backend
+    // Submit user profile + preferences to backend
     try {
       setIsLoadingPreferences(true);
-      await apiClient('/preferences', {
-        method: 'POST',
+      const userId = user?.id;
+      if (!userId) throw new Error('No user id');
+
+      await apiClient(`/users/${userId}`, {
+        method: 'PATCH',
         body: JSON.stringify({
+          venue_size_id: selectedVenueSizes[0] ?? null,
+          additional_context: '',
           genres: selectedGenres,
           vibes: selectedVibes,
           avoid: selectedAvoid,
           factors: selectedFactors,
-          venueSizes: selectedVenueSizes,
-          artists: ''
-        })
+        }),
+      });
+
+      await dispatch(refreshProfile());
+
+      toast.success("Preferences saved", {
+        description: "You're all set.",
+        style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
       });
     } catch (error) {
       console.error('Failed to save preferences:', error);
+      toast.error("Couldn't save preferences", {
+        description: "Please try again.",
+        style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+      });
     } finally {
       setIsLoadingPreferences(false);
     }

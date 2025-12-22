@@ -605,6 +605,13 @@ const authSlice = createSlice({
         state.loading = false
         state.profile = action.payload.profile
         state.user = action.payload.user
+        state.preferences = action.payload.preferences || null
+        state.hasPreferences = computeHasPreferences(action.payload.preferences)
+        try {
+          localStorage.setItem('raven_has_preferences', state.hasPreferences ? 'true' : 'false')
+        } catch {
+          // ignore
+        }
         state.error = null
       })
       .addCase(refreshProfile.rejected, (state, action) => {

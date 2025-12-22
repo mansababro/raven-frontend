@@ -177,11 +177,11 @@ export default function App() {
           element={
             <ProtectedRoute>
               <ErrorBoundary>
-                <HomeScreen 
-                  onPrivacyClick={handlePrivacyClick}
-                  onTermsClick={handleTermsClick}
-                  onLogout={handleLogout}
-                />
+              <HomeScreen 
+                onPrivacyClick={handlePrivacyClick}
+                onTermsClick={handleTermsClick}
+                onLogout={handleLogout}
+              />
               </ErrorBoundary>
             </ProtectedRoute>
           } 
