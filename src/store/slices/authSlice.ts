@@ -243,13 +243,9 @@ export const signInWithGoogle = createAsyncThunk(
   'auth/signInWithGoogle',
   async (_, { rejectWithValue }) => {
     try {
-      // IMPORTANT:
-      // - In production (Vercel), we want to redirect back to the real domain, not a preview/localhost.
-      // - In dev, default to current origin for convenience.
-      const siteUrl = (
-        import.meta.env.VITE_SITE_URL ||
-        (import.meta.env.PROD ? 'https://askraven.app' : window.location.origin)
-      ).replace(/\/$/, '')
+      // Always redirect Google OAuth back to the canonical production domain.
+      // This avoids accidental redirects to localhost / preview URLs.
+      const siteUrl = 'https://askraven.app'
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
