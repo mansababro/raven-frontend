@@ -15,7 +15,9 @@ type CheckOptions = {
  */
 export async function checkBackendHealth(options: CheckOptions = {}): Promise<boolean> {
   const timeoutMs = options.timeoutMs ?? 3500;
-  const path = options.path ?? (import.meta.env.VITE_BACKEND_HEALTH_PATH || "/health");
+  // Your backend's "health check" is currently served at "/" (per Swagger screenshot),
+  // but allow overriding via env for flexibility.
+  const path = options.path ?? (import.meta.env.VITE_BACKEND_HEALTH_PATH || "/");
 
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -24,8 +26,16 @@ export async function checkBackendHealth(options: CheckOptions = {}): Promise<bo
     const res = await fetch(`${API_URL}${path}`, {
       method: "GET",
       cache: "no-store",
+      // Health check is used only for "reachability" gating.
+      // Use no-cors so this doesn't fail due to missing CORS headers in production.
+      // If it succeeds, we treat backend as reachable.
+      mode: "no-cors",
       signal: controller.signal,
     });
+
+    // In no-cors mode, the response is opaque (status 0). If the request didn't throw,
+    // treat it as reachable.
+    if (res.type === "opaque") return true;
 
     // If server answered at all, it's "reachable"; only treat 5xx as down.
     if (res.status >= 500) return false;
