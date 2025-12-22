@@ -140,7 +140,9 @@ export default function App() {
     }
   };
 
-  if (backendChecked && !backendReachable) {
+  // Don't block public pages like /login if backend is temporarily unreachable.
+  // Gate only the protected experience (/home).
+  if (backendChecked && !backendReachable && location.pathname === '/home') {
     return (
       <MaintenanceScreen
         onRecovered={() => {
