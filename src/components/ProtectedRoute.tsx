@@ -13,7 +13,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { isAuthenticated, loading } = useSelector((state: RootState) => state.auth)
   const hasOAuthHash = typeof window !== 'undefined' && window.location.hash.includes('access_token')
   const didInitRef = useRef(false)
-  const [checking, setChecking] = useState(true)
+  const [resolvedAuth, setResolvedAuth] = useState(false)
 
   // Ensure we always resolve auth on /home refresh, including OAuth hash callbacks.
   // This prevents getting stuck with a lingering "#access_token=..." hash.
@@ -22,7 +22,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     didInitRef.current = true
 
     const run = async () => {
-      setChecking(true)
       try {
         if (hasOAuthHash) {
           await dispatch(handleOAuthCallback())
@@ -37,7 +36,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
           window.history.replaceState(null, '', window.location.pathname)
         }
       } finally {
-        setChecking(false)
+        setResolvedAuth(true)
       }
     }
 
@@ -45,7 +44,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }, [dispatch, hasOAuthHash])
 
   // Show loading while checking auth state
-  if (loading || hasOAuthHash || checking) {
+  if (!resolvedAuth || loading || hasOAuthHash) {
     return (
       <div className="fixed inset-0 z-[99999] bg-[#121212] flex items-center justify-center">
         <div className="text-center">

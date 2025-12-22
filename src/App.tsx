@@ -107,6 +107,13 @@ export default function App() {
     }
   }, [isAuthenticated, loading, location.pathname, navigate]);
 
+  // If user logs out, allow refreshProfile-on-/home to run again next time they log in.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      didRefreshProfileRef.current = false;
+    }
+  }, [isAuthenticated]);
+
   // On refresh/deep-link into /home, ensure we attempt to fetch the latest profile/preferences.
   // This helps avoid "blank/glitchy" states when local cached prefs diverge from backend.
   useEffect(() => {
@@ -140,7 +147,9 @@ export default function App() {
     }
   };
 
-  if (backendChecked && !backendReachable) {
+  // Only gate the main app experience. Don't block the login screen on backend outages,
+  // otherwise logging out can get "stuck" on maintenance.
+  if (backendChecked && !backendReachable && location.pathname === '/home') {
     return (
       <MaintenanceScreen
         onRecovered={() => {

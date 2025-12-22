@@ -34,14 +34,14 @@ const Login = () => {
         className="px-4 py-2 rounded-lg bg-[#2a2a2a] text-white border border-[#3a3a3a] focus:border-[#ffaeaf] focus:outline-none"
       />
       <div className="flex items-center">
-        <input
+      <input
           type={showPassword ? 'text' : 'password'}
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
+        placeholder="Password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        required
           className="flex-1 px-4 py-2 rounded-lg bg-[#2a2a2a] text-white border border-[#3a3a3a] focus:border-[#ffaeaf] focus:outline-none"
-        />
+      />
         <button
           type="button"
           onClick={() => setShowPassword((v) => !v)}

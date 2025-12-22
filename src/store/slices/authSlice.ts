@@ -605,11 +605,7 @@ const authSlice = createSlice({
       .addCase(refreshProfile.fulfilled, (state, action) => {
         state.loading = false
         state.profile = action.payload.profile
-        // Backend "user" payload may omit email; preserve whatever we already have.
-        const prevEmail = state.user?.email
         state.user = action.payload.user
-          ? { ...action.payload.user, email: action.payload.user.email ?? prevEmail }
-          : state.user
         state.preferences = action.payload.preferences || null
         state.hasPreferences = computeHasPreferences(action.payload.preferences)
         try {
