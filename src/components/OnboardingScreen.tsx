@@ -282,15 +282,15 @@ export function OnboardingScreen({ onPrivacyClick = () => {}, onTermsClick = () 
     document.head.appendChild(script);
   }, []);
 
-  const handleLogout = async () => {
-    await dispatch(signOut());
+  const handleLogout = () => {
+    dispatch(signOut());
     navigate('/login', { replace: true });
   };
 
   const handleDeleteAccount = async () => {
     // TODO: Implement delete account functionality
     console.log('Delete account clicked');
-    await handleLogout();
+    handleLogout();
   };
 
   return (

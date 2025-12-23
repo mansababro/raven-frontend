@@ -804,15 +804,16 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
   // SHARED HANDLERS
   // =============================================================================
 
-  const handleLogout = async () => {
-    await dispatch(signOut());
-    // Ensure we immediately land on the login screen after logout
+  const handleLogout = () => {
+    // Don't await: on refresh, there may be in-flight auth/profile calls. Navigating immediately
+    // ensures the user leaves /home even if Supabase/network is slow.
+    dispatch(signOut());
     navigate('/login', { replace: true });
   };
 
   const handleDeleteAccount = async () => {
     console.log('Delete account clicked');
-    await handleLogout();
+    handleLogout();
   };
 
   // =============================================================================
