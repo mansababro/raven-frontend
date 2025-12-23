@@ -22,9 +22,21 @@ export const useAuth = () => {
     } = supabase.auth.onAuthStateChange((event, session) => {
       console.log('[useAuth] onAuthStateChange event:', event, 'session exists:', !!session);
       if (session) {
-        console.log('[useAuth] onAuthStateChange: session exists, dispatching getCurrentSession');
-        dispatch(getCurrentSession())
+        const hasRavenSession = !!localStorage.getItem('raven_session');
+        const logoutInProgress = sessionStorage.getItem('raven_logout_in_progress') === 'true';
+
+        if (logoutInProgress) {
+          console.log('[useAuth] onAuthStateChange: ignoring session because logout is in progress');
+          return;
+        }
+
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || !hasRavenSession) {
+          console.log('[useAuth] onAuthStateChange: triggering getCurrentSession');
+          dispatch(getCurrentSession())
+        }
       } else {
+        // Clear logout flag on explicit SIGNED_OUT
+        sessionStorage.removeItem('raven_logout_in_progress');
         console.log('[useAuth] onAuthStateChange: no session, dispatching signOut');
         dispatch(signOut())
       }

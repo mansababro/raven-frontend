@@ -124,8 +124,9 @@ export const signUp = createAsyncThunk(
 
       if (error) throw error
 
-      // If session exists, fetch full profile (includes preferences)
       if (data.session) {
+        // Clear logout flag on fresh sign up
+        sessionStorage.removeItem('raven_logout_in_progress')
         // Persist session for refresh-stable auth
         try {
           localStorage.setItem('raven_session', JSON.stringify(data.session))
@@ -188,6 +189,9 @@ export const signIn = createAsyncThunk(
       })
 
       if (error) throw error
+
+      // Clear logout flag on fresh sign in
+      sessionStorage.removeItem('raven_logout_in_progress')
 
       // Persist session for refresh-stable auth
       try {
@@ -288,6 +292,9 @@ export const handleOAuthCallback = createAsyncThunk(
         throw new Error('No session found')
       }
 
+      // Clear logout flag on fresh OAuth callback
+      sessionStorage.removeItem('raven_logout_in_progress')
+
       // Persist session + user id for your flow
       try {
         localStorage.setItem('raven_session', JSON.stringify(data.session))
@@ -345,7 +352,21 @@ export const signOut = createAsyncThunk(
       localStorage.removeItem('raven_session')
       localStorage.removeItem('raven_user_id')
       localStorage.removeItem('raven_has_preferences')
-      console.log('[AuthSlice] signOut: primary keys removed from localStorage')
+      
+      // Mark that we are intentionally logging out to prevent phantom re-logins on refresh
+      sessionStorage.setItem('raven_logout_in_progress', 'true')
+      
+      // Also clear all Supabase-related keys synchronously to prevent phantom logins on refresh
+      const keysToRemove: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+          keysToRemove.push(key)
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key))
+      
+      console.log('[AuthSlice] signOut: primary and supabase keys removed from localStorage')
     } catch (e) {
       console.error('[AuthSlice] signOut: error removing primary keys:', e)
     }

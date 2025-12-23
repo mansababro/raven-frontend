@@ -60,14 +60,30 @@ export default function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('[App] onAuthStateChange event:', event, 'session exists:', !!session);
+      
       if (event === 'SIGNED_IN' && session) {
-        // User just signed in - dispatch to update state
-        console.log('[App] onAuthStateChange: SIGNED_IN event, dispatching handleOAuthCallback');
-        await dispatch(handleOAuthCallback());
-        navigate('/home');
+        // Only treat as a fresh login if we don't have a raven_session yet (boot/new login)
+        // AND we are either in an OAuth flow or we explicitly want to sign in.
+        const hasRavenSession = !!localStorage.getItem('raven_session');
+        const isOAuthFlow = window.location.hash.includes('access_token');
+        const logoutInProgress = sessionStorage.getItem('raven_logout_in_progress') === 'true';
+        
+        console.log('[App] SIGNED_IN details: hasRavenSession:', hasRavenSession, 'isOAuthFlow:', isOAuthFlow, 'logoutInProgress:', logoutInProgress);
+
+        if (!logoutInProgress && (isOAuthFlow || !hasRavenSession)) {
+          console.log('[App] onAuthStateChange: Processing SIGNED_IN event');
+          await dispatch(handleOAuthCallback());
+          navigate('/home');
+        } else {
+          console.log('[App] onAuthStateChange: SIGNED_IN event ignored (already have raven_session, logout in progress, or phantom session)');
+          if (logoutInProgress && !hasRavenSession) {
+             // If we are logging out, ensure we stay on login
+             navigate('/login', { replace: true });
+          }
+        }
       } else if (event === 'SIGNED_OUT') {
-        // User signed out - navigate to login
-        // localStorage is already cleared by the signOut action
+        // Clear the logout flag when we successfully reach SIGNED_OUT state
+        sessionStorage.removeItem('raven_logout_in_progress');
         console.log('[App] onAuthStateChange: SIGNED_OUT event, navigating to /login');
         navigate('/login', { replace: true });
       } else if (event === 'TOKEN_REFRESHED' && session) {
