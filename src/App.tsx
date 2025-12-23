@@ -54,6 +54,10 @@ export default function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (import.meta.env.VITE_DEBUG_AUTH === 'true') {
+        // eslint-disable-next-line no-console
+        console.info('[auth] onAuthStateChange', { event, hasSession: !!session, path: window.location.pathname })
+      }
       if (event === 'SIGNED_IN' && session) {
         // User just signed in - dispatch to update state
         await dispatch(handleOAuthCallback());

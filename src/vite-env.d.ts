@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_SITE_URL?: string
   readonly VITE_BACKEND_HEALTH_PATH?: string
   readonly VITE_DISABLE_BACKEND_HEALTHCHECK?: string
+  readonly VITE_DEBUG_AUTH?: string
 }
 
 interface ImportMeta {

@@ -2,6 +2,13 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
 import { supabase } from '../../lib/supabase'
 
 const API_URL = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:4000'
+const AUTH_DEBUG = import.meta.env.VITE_DEBUG_AUTH === 'true'
+
+const authLog = (...args: any[]) => {
+  if (!AUTH_DEBUG) return
+  // eslint-disable-next-line no-console
+  console.info('[auth]', ...args)
+}
 
 const fetchJsonWithTimeout = async <T>(
   url: string,
@@ -334,6 +341,14 @@ export const handleOAuthCallback = createAsyncThunk(
 export const signOut = createAsyncThunk(
   'auth/signOut',
   async () => {
+    authLog('signOut: start', {
+      hasRavenSession: (() => {
+        try { return !!localStorage.getItem('raven_session') } catch { return null }
+      })(),
+      hasSupabaseTokenKey: (() => {
+        try { return Object.keys(localStorage).some(k => k.includes('sb-') && k.includes('auth-token')) } catch { return null }
+      })(),
+    })
     // Best-effort sign out; even if network/global sign out fails we must clear local session + storage.
     try {
       // Ensure we stop background refresh first (prevents token refresh repopulating storage).
@@ -344,14 +359,17 @@ export const signOut = createAsyncThunk(
       if (localRes?.error) {
         console.warn('Supabase local signOut failed:', localRes.error)
       }
+      authLog('signOut: local scope done', { error: localRes?.error ?? null })
 
       // Then attempt global sign out (best effort).
       const globalRes = await supabase.auth.signOut({ scope: 'global' } as any)
       if (globalRes?.error) {
         console.warn('Supabase global signOut failed:', globalRes.error)
       }
+      authLog('signOut: global scope done', { error: globalRes?.error ?? null })
     } catch (error) {
       console.warn('Supabase signOut threw:', error)
+      authLog('signOut: threw', error)
     } finally {
       // Remove everything from storage as requested.
       try {
@@ -364,6 +382,11 @@ export const signOut = createAsyncThunk(
       } catch {
         // ignore
       }
+      authLog('signOut: storage cleared', {
+        remainingLocalKeys: (() => {
+          try { return Object.keys(localStorage) } catch { return null }
+        })(),
+      })
 
       // Extra safety: clear again on next tick in case any async persistence runs after signOut.
       try {
@@ -374,12 +397,18 @@ export const signOut = createAsyncThunk(
           } catch {
             // ignore
           }
+          authLog('signOut: storage cleared (next tick)', {
+            remainingLocalKeys: (() => {
+              try { return Object.keys(localStorage) } catch { return null }
+            })(),
+          })
         }, 0)
       } catch {
         // ignore
       }
     }
 
+    authLog('signOut: done')
     return null
   }
 )
@@ -401,6 +430,7 @@ export const getCurrentSession = createAsyncThunk(
       try {
         localStorage.setItem('raven_session', JSON.stringify(data.session))
         localStorage.setItem('raven_user_id', data.session.user.id)
+        authLog('getCurrentSession: wrote raven_session', { userId: data.session.user.id })
       } catch {
         // ignore storage failures
       }
