@@ -26,7 +26,9 @@ export default function App() {
     // Handle OAuth callback from URL hash first
     const handleInitialCallback = async () => {
       const hash = window.location.hash;
+      console.log('[App] handleInitialCallback: hash exists:', !!hash);
       if (hash && hash.includes('access_token')) {
+        console.log('[App] handleInitialCallback: access_token found in hash, handling OAuth callback');
         // Supabase v2 auto-handles hash when detectSessionInUrl=true.
         // We just sync Redux state and navigate.
         const result = await dispatch(handleOAuthCallback());
@@ -36,38 +38,41 @@ export default function App() {
         
         // If successful, navigate to home
         if (handleOAuthCallback.fulfilled.match(result)) {
+          console.log('[App] handleInitialCallback: OAuth callback successful, navigating to /home');
           navigate('/home');
+        } else {
+          console.log('[App] handleInitialCallback: OAuth callback failed:', result.payload);
         }
         return;
       }
       
-      // No OAuth callback: if we already have a stored session, don't block behind loading.
-      const hasStoredSession = !!localStorage.getItem('raven_session');
-      if (!hasStoredSession) {
-        dispatch(getCurrentSession());
-      }
+      // Always verify session on mount. 
+      // authSlice handles not showing a loading state if we already have a cached session.
+      console.log('[App] handleInitialCallback: dispatching getCurrentSession');
+      dispatch(getCurrentSession());
     };
 
     handleInitialCallback();
 
     // Listen for auth state changes
+    console.log('[App] setting up onAuthStateChange listener');
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (import.meta.env.VITE_DEBUG_AUTH === 'true') {
-        // eslint-disable-next-line no-console
-        console.info('[auth] onAuthStateChange', { event, hasSession: !!session, path: window.location.pathname })
-      }
+      console.log('[App] onAuthStateChange event:', event, 'session exists:', !!session);
       if (event === 'SIGNED_IN' && session) {
         // User just signed in - dispatch to update state
+        console.log('[App] onAuthStateChange: SIGNED_IN event, dispatching handleOAuthCallback');
         await dispatch(handleOAuthCallback());
         navigate('/home');
       } else if (event === 'SIGNED_OUT') {
         // User signed out - navigate to login
         // localStorage is already cleared by the signOut action
+        console.log('[App] onAuthStateChange: SIGNED_OUT event, navigating to /login');
         navigate('/login', { replace: true });
       } else if (event === 'TOKEN_REFRESHED' && session) {
         // Token refreshed, update session
+        console.log('[App] onAuthStateChange: TOKEN_REFRESHED event, dispatching getCurrentSession');
         dispatch(getCurrentSession());
       }
     });

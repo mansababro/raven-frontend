@@ -2,13 +2,6 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
 import { supabase } from '../../lib/supabase'
 
 const API_URL = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:4000'
-const AUTH_DEBUG = import.meta.env.VITE_DEBUG_AUTH === 'true'
-
-const authLog = (...args: any[]) => {
-  if (!AUTH_DEBUG) return
-  // eslint-disable-next-line no-console
-  console.info('[auth]', ...args)
-}
 
 const fetchJsonWithTimeout = async <T>(
   url: string,
@@ -83,13 +76,15 @@ const loadStoredSession = (): { user: User | null; token: string | null; isAuthe
   if (typeof window === 'undefined') return { user: null, token: null, isAuthenticated: false }
   try {
     const raw = localStorage.getItem('raven_session')
+    console.log('[AuthSlice] loadStoredSession: raven_session from localStorage:', raw ? 'exists' : 'null')
     if (!raw) return { user: null, token: null, isAuthenticated: false }
     const session = JSON.parse(raw)
     const token = session?.access_token || null
     const user = session?.user || null
+    console.log('[AuthSlice] loadStoredSession: parsed session user:', user?.id, 'token exists:', !!token)
     if (token && user?.id) return { user, token, isAuthenticated: true }
-  } catch {
-    // ignore
+  } catch (e) {
+    console.error('[AuthSlice] loadStoredSession error:', e)
   }
   return { user: null, token: null, isAuthenticated: false }
 }
@@ -341,74 +336,74 @@ export const handleOAuthCallback = createAsyncThunk(
 export const signOut = createAsyncThunk(
   'auth/signOut',
   async () => {
-    authLog('signOut: start', {
-      hasRavenSession: (() => {
-        try { return !!localStorage.getItem('raven_session') } catch { return null }
-      })(),
-      hasSupabaseTokenKey: (() => {
-        try { return Object.keys(localStorage).some(k => k.includes('sb-') && k.includes('auth-token')) } catch { return null }
-      })(),
-    })
+    console.log('[AuthSlice] signOut initiated')
+    
+    // 1. Clear our primary auth keys IMMEDIATELY (sync).
+    // This ensures that even if the page is refreshed during the async signOut,
+    // loadStoredSession() will not find these keys on the next load.
+    try {
+      localStorage.removeItem('raven_session')
+      localStorage.removeItem('raven_user_id')
+      localStorage.removeItem('raven_has_preferences')
+      console.log('[AuthSlice] signOut: primary keys removed from localStorage')
+    } catch (e) {
+      console.error('[AuthSlice] signOut: error removing primary keys:', e)
+    }
+
     // Best-effort sign out; even if network/global sign out fails we must clear local session + storage.
     try {
       // Ensure we stop background refresh first (prevents token refresh repopulating storage).
-      ;(supabase.auth as any).stopAutoRefresh?.()
+      if ((supabase.auth as any).stopAutoRefresh) {
+        ;(supabase.auth as any).stopAutoRefresh()
+        console.log('[AuthSlice] signOut: stopAutoRefresh called')
+      }
 
       // Always clear local session first (works even if backend is unreachable).
+      // Note: signOut() internally also clears Supabase's own storage.
       const localRes = await supabase.auth.signOut({ scope: 'local' } as any)
+      console.log('[AuthSlice] signOut: local signOut result:', localRes)
       if (localRes?.error) {
         console.warn('Supabase local signOut failed:', localRes.error)
       }
-      authLog('signOut: local scope done', { error: localRes?.error ?? null })
 
       // Then attempt global sign out (best effort).
       const globalRes = await supabase.auth.signOut({ scope: 'global' } as any)
+      console.log('[AuthSlice] signOut: global signOut result:', globalRes)
       if (globalRes?.error) {
         console.warn('Supabase global signOut failed:', globalRes.error)
       }
-      authLog('signOut: global scope done', { error: globalRes?.error ?? null })
     } catch (error) {
       console.warn('Supabase signOut threw:', error)
-      authLog('signOut: threw', error)
     } finally {
+      console.log('[AuthSlice] signOut: clearing remaining localStorage and sessionStorage')
       // Remove everything from storage as requested.
       try {
         localStorage.clear()
-      } catch {
-        // ignore
+      } catch (e) {
+        console.error('[AuthSlice] signOut: localStorage.clear error:', e)
       }
       try {
         sessionStorage.clear()
-      } catch {
-        // ignore
+      } catch (e) {
+        console.error('[AuthSlice] signOut: sessionStorage.clear error:', e)
       }
-      authLog('signOut: storage cleared', {
-        remainingLocalKeys: (() => {
-          try { return Object.keys(localStorage) } catch { return null }
-        })(),
-      })
 
       // Extra safety: clear again on next tick in case any async persistence runs after signOut.
       try {
         setTimeout(() => {
+          console.log('[AuthSlice] signOut: extra safety clear running')
           try {
             localStorage.clear()
             sessionStorage.clear()
           } catch {
             // ignore
           }
-          authLog('signOut: storage cleared (next tick)', {
-            remainingLocalKeys: (() => {
-              try { return Object.keys(localStorage) } catch { return null }
-            })(),
-          })
         }, 0)
       } catch {
         // ignore
       }
     }
 
-    authLog('signOut: done')
     return null
   }
 )
@@ -418,7 +413,9 @@ export const getCurrentSession = createAsyncThunk(
   'auth/getCurrentSession',
   async (_, { rejectWithValue }) => {
     try {
+      console.log('[AuthSlice] getCurrentSession initiated')
       const { data, error } = await supabase.auth.getSession()
+      console.log('[AuthSlice] getCurrentSession: supabase.auth.getSession result:', { hasSession: !!data.session, error })
 
       if (error) throw error
 
@@ -430,7 +427,6 @@ export const getCurrentSession = createAsyncThunk(
       try {
         localStorage.setItem('raven_session', JSON.stringify(data.session))
         localStorage.setItem('raven_user_id', data.session.user.id)
-        authLog('getCurrentSession: wrote raven_session', { userId: data.session.user.id })
       } catch {
         // ignore storage failures
       }
