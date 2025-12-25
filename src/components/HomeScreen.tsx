@@ -100,6 +100,19 @@ const mockEvents = [
     image: 'https://images.unsplash.com/photo-1524368535928-5b5e00ddc76b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtdXNpYyUyMGZlc3RpdmFsJTIwY3Jvd2R8ZW58MXx8fHwxNzY1MjIzMjI4fDA&ixlib=rb-4.1.0&q=80&w=1080',
     lineup: ['Ben Böhmer', 'Stephan Bodzin', 'Massano'],
     description: 'Picture this: open air, incredible production, and a sunset that melts into night as the music evolves. This is more about the experience than just the music - though with Ben Böhmer leading the charge, expect emotional, melodic moments that make you forget where you are. Great mix of house and techno throughout the night, multiple stages to explore, and a crowd that\'s here for good vibes. Bring your friends, this one\'s a celebration.'
+  },
+  {
+    id: 4,
+    name: 'Neon Nights',
+    date: 'Mon, Dec 16 • 9:00 PM',
+    venue: 'The Rooftop',
+    address: '150 W 28th St, New York, NY 10001',
+    mapsLink: 'https://maps.google.com/?q=150+W+28th+St+New+York+NY',
+    genres: ['Disco', 'House', 'Funk'],
+    artist: 'Purple Disco Machine',
+    image: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxkaXNjbyUyMGNsdWJ8ZW58MXx8fHwxNzY1Mjg1MDY2fDA&ixlib=rb-4.1.0&q=80&w=1080',
+    lineup: ['Purple Disco Machine', 'Folamour', 'Myd', 'Breakbot', 'The Magician'],
+    description: 'Get ready to dance under the stars. This rooftop party brings that disco revival energy with infectious grooves that keep you moving all night. The vibe is pure fun - think mirror balls, neon lights, and a crowd that knows how to let loose. The sound system pumps out those classic disco beats mixed with modern house, creating an atmosphere that\'s both nostalgic and fresh. Perfect for when you want to feel good and move your body without taking things too seriously.'
   }
 ];
 
@@ -1025,14 +1038,17 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
   const renderEventDetailsModal = () => (
     selectedEvent && (
       <div 
-        className="fixed top-0 left-0 w-full h-full flex items-center justify-center z-[10000] pointer-events-auto px-4 py-8"
-        style={{ backdropFilter: 'blur(10px)', backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+        className="fixed top-0 left-0 w-full h-full flex items-center justify-center z-[10000] pointer-events-auto px-4 py-8 animate-modal-backdrop"
+        style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
         onClick={() => setSelectedEvent(null)}
       >
         <div 
-          className="bg-[#1f1e1e] border border-[#3a3a3a] rounded-[16px] p-6 md:p-8 w-full max-w-[600px] max-h-full overflow-y-auto shadow-2xl relative"
+          className="bg-[#1f1e1e] border border-[#3a3a3a] rounded-[16px] p-6 md:p-8 w-full max-w-[600px] max-h-full overflow-y-auto overflow-x-hidden shadow-2xl relative no-scrollbar"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Gradient Light Overlay */}
+          <div className="modal-gradient-light" />
+
           <button 
             className="sticky top-0 left-full ml-auto mb-6 text-[#9c9aa5] hover:text-[#ffaeaf] transition-colors shrink-0 z-10 bg-[#1f1e1e] p-1 rounded-[8px]" 
             onClick={() => setSelectedEvent(null)}
@@ -1040,7 +1056,7 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
             <X className="size-6" />
           </button>
 
-          <div className="flex items-start justify-between -mt-12 mb-6">
+          <div className="flex items-start justify-between -mt-12 mb-6 animate-modal-content" style={{ animationDelay: '0.1s' }}>
             <div className="flex-1 pr-4">
               <p className="font-['Audiowide:Regular',sans-serif] text-[22px] md:text-[28px] text-white tracking-[-0.9px] uppercase mb-3">
                 {selectedEvent.name}
@@ -1067,11 +1083,11 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
           </div>
 
           <div 
-            className="w-full h-[200px] rounded-[12px] bg-cover bg-center mb-6"
-            style={{ backgroundImage: `url(${selectedEvent.image})` }}
+            className="w-full h-[200px] rounded-[12px] bg-cover bg-center mb-6 animate-modal-content"
+            style={{ backgroundImage: `url(${selectedEvent.image})`, animationDelay: '0.2s' }}
           />
 
-          <div className="mb-6 flex flex-wrap gap-2">
+          <div className="mb-6 flex flex-wrap gap-2 animate-modal-content" style={{ animationDelay: '0.3s' }}>
             {selectedEvent.genres.map((genre, index) => (
               <div key={index} className="inline-block bg-[linear-gradient(90deg,rgba(143,125,180,0.15)_0%,rgba(143,125,180,0.15)_100%),linear-gradient(90deg,rgb(31,30,30)_0%,rgb(31,30,30)_100%)] py-[6px] px-[18px] rounded-[8px]">
                 <p className="font-['Saira:Regular',sans-serif] text-[13px] text-white uppercase tracking-wider">
@@ -1081,7 +1097,7 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
             ))}
           </div>
 
-          <div className="mb-6 flex gap-3 items-start">
+          <div className="mb-6 flex gap-3 items-start animate-modal-content" style={{ animationDelay: '0.4s' }}>
             <div className="w-[30px] h-[30px] shrink-0 animate-hover">
               <img 
                 src={ravenImage}
@@ -1094,7 +1110,7 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
             </p>
           </div>
 
-          <div className="mb-6">
+          <div className="mb-6 animate-modal-content" style={{ animationDelay: '0.5s' }}>
             <p className="font-['Saira:Regular',sans-serif] text-[16px] text-white mb-3 uppercase tracking-wide">
               Lineup
             </p>
@@ -1111,7 +1127,8 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
           </div>
 
           <button
-            className="w-full bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-6 py-3 rounded-[8px] flex items-center justify-center gap-2"
+            className="w-full bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-6 py-3 rounded-[8px] flex items-center justify-center gap-2 animate-modal-content"
+            style={{ animationDelay: '0.6s' }}
           >
             <p className="font-['Saira:Regular',sans-serif] text-[16px] text-[#121212]">
               To the event page / tickets
@@ -1525,51 +1542,48 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
                 {/* Event Cards */}
                 {message.type === 'events' && (
                   <div className="mt-4 pointer-events-auto">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {mockEvents.map((event) => (
-                        <div
-                          key={event.id}
-                          onClick={() => setSelectedEvent(event)}
-                          className="relative w-full h-[180px] rounded-[12px] overflow-hidden border border-[#3a3a3a] hover:border-[#ffaeaf] transition-colors cursor-pointer"
-                        >
-                          <div
-                            className="absolute inset-0 bg-cover bg-center"
-                            style={{
-                              backgroundImage: `url(${event.image})`,
-                              filter: 'blur(8px)',
-                              transform: 'scale(1.1)'
-                            }}
-                          />
+<div className="flex gap-4 flex-wrap lg:flex-nowrap">
+  {mockEvents.map((event) => (
+    <div
+      key={event.id}
+      onClick={() => setSelectedEvent(event)}
+      className="relative w-full md:w-[320px] lg:w-[320px] lg:flex-shrink-0 h-[180px] rounded-[12px] overflow-hidden border border-[#3a3a3a] hover:border-[#ffaeaf] transition-all cursor-pointer hover-party-frenzy"
+    >
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{
+          backgroundImage: `url(${event.image})`,
+          filter: 'blur(8px)',
+          transform: 'scale(1.1)'
+        }}
+      />
 
-                          <div className="absolute inset-0 bg-black/75" />
+      <div className="absolute inset-0 bg-black/75" />
 
-                          <div className="relative h-full p-5 flex flex-col justify-between">
-                            <div>
-                              <p className="font-['Audiowide:Regular',sans-serif] text-[18px] text-white mb-2 drop-shadow-lg">
-                                {event.name}
-                              </p>
-                              <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#ffaeaf] mb-1 drop-shadow-lg">
-                                {event.date}
-                              </p>
-                              <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#e0e0e0] drop-shadow-lg">
-                                {event.venue}
-                              </p>
-                            </div>
+      <div className="relative h-full p-5 flex flex-col justify-between">
+        <div>
+          <p className="font-['Audiowide:Regular',sans-serif] text-[18px] text-white mb-2 drop-shadow-lg">
+            {event.name}
+          </p>
+          <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#ffaeaf] mb-1 drop-shadow-lg">
+            {event.date}
+          </p>
+          <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#e0e0e0] drop-shadow-lg">
+            {event.venue}
+          </p>
+        </div>
 
-                            <div className="w-full">
-                              <p className="font-['Saira:Regular',sans-serif] text-[11px] text-[#b0b0b0] uppercase tracking-wider drop-shadow-lg mb-2">
-                                {event.genres.join(' • ')}
-                              </p>
-                              <button className="bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-4 py-2 rounded-[8px] w-full">
-                                <p className="font-['Saira:Regular',sans-serif] text-[12px] text-[#121212]">
-                                  Details and lineup
-                                </p>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+        <div className="w-full">
+          <p className="font-['Saira:Regular',sans-serif] text-[11px] text-[#b0b0b0] uppercase tracking-wider drop-shadow-lg mb-2">
+            {event.genres.join(' • ')}
+          </p>
+        </div>
+      </div>
+    </div>
+  ))}
+</div>
+
+
                   </div>
                 )}
               </div>
@@ -1643,4 +1657,5 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
     </div>
   );
 }
+
 

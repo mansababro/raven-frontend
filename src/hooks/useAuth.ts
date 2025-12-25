@@ -32,7 +32,7 @@ export const useAuth = () => {
 
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || !hasRavenSession) {
           console.log('[useAuth] onAuthStateChange: triggering getCurrentSession');
-          dispatch(getCurrentSession())
+        dispatch(getCurrentSession())
         }
       } else {
         // Clear logout flag on explicit SIGNED_OUT

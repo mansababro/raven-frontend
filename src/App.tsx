@@ -49,7 +49,7 @@ export default function App() {
       // Always verify session on mount. 
       // authSlice handles not showing a loading state if we already have a cached session.
       console.log('[App] handleInitialCallback: dispatching getCurrentSession');
-      dispatch(getCurrentSession());
+        dispatch(getCurrentSession());
     };
 
     handleInitialCallback();
@@ -72,8 +72,8 @@ export default function App() {
 
         if (!logoutInProgress && (isOAuthFlow || !hasRavenSession)) {
           console.log('[App] onAuthStateChange: Processing SIGNED_IN event');
-          await dispatch(handleOAuthCallback());
-          navigate('/home');
+        await dispatch(handleOAuthCallback());
+        navigate('/home');
         } else {
           console.log('[App] onAuthStateChange: SIGNED_IN event ignored (already have raven_session, logout in progress, or phantom session)');
           if (logoutInProgress && !hasRavenSession) {
