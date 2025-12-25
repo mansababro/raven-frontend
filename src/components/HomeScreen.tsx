@@ -1318,10 +1318,10 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
                             <button
                               key={item.id}
                               onClick={() => handlePreferenceToggle('avoid', item.id)}
-                              className={`py-[6px] px-[18px] rounded-[8px] transition-all flex items-center justify-center border ${
+                              className={`py-[6px] px-[18px] rounded-[8px] transition-all flex items-center justify-center ${
                                 selectedAvoid.includes(item.id)
-                                  ? 'bg-[#dc3545] text-white border-[#dc3545]'
-                                  : 'bg-[#1f1e1e] text-white border-[#3a3a3a] hover:border-[#dc3545] hover:bg-[rgba(220,53,69,0.1)]'
+                                  ? 'bg-[#8f7db4] text-[#121212]'
+                                  : 'bg-[#1f1e1e] text-white hover:bg-[linear-gradient(90deg,rgba(143,125,180,0.15)_0%,rgba(143,125,180,0.15)_100%),linear-gradient(90deg,rgb(31,30,30)_0%,rgb(31,30,30)_100%)]'
                               }`}
                             >
                               <p className="font-['Saira:Regular',sans-serif] text-[13px] leading-[19.5px]">
