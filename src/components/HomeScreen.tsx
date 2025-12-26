@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Send, Menu, X, ExternalLink } from 'lucide-react';
+import { Send, Menu, X, ExternalLink, Loader2 } from 'lucide-react';
 import { signOut } from '../store/slices/authSlice';
 import { refreshProfile } from '../store/slices/authSlice';
 import type { AppDispatch, RootState } from '../store/store';
@@ -26,11 +26,27 @@ type OnboardingMessage = {
   questionType?: 'music' | 'vibe' | 'avoid' | 'factors' | 'venueSizes' | 'artists';
 };
 
+type ParsedEvent = {
+  id: number;
+  name: string;
+  date: string;
+  venue: string;
+  address?: string;
+  mapsLink?: string;
+  genres: string[];
+  artist?: string;
+  image: string;
+  lineup?: string[];
+  description?: string;
+  ticketLink?: string;
+};
+
 type ChatMessage = {
   id: number;
   role: 'assistant' | 'user';
   content: string;
   type?: 'events';
+  parsedEvents?: ParsedEvent[];
 };
 
 type HomeScreenProps = {
@@ -117,6 +133,86 @@ const mockEvents = [
 ];
 
 // =============================================================================
+// PARSER FUNCTIONS
+// =============================================================================
+
+const parseEventsFromReply = (reply: string): ParsedEvent[] => {
+  const events: ParsedEvent[] = [];
+  
+  // Split by separator (-----------------------------)
+  const eventBlocks = reply.split(/-----------------------------\s*/);
+  
+  eventBlocks.forEach((block, index) => {
+    const lines = block.trim().split('\n').map(line => line.trim()).filter(line => line);
+    
+    if (lines.length === 0) return;
+    
+    let name = '';
+    let venue = '';
+    let date = '';
+    let ticketLink = '';
+    let genres: string[] = [];
+    
+    lines.forEach((line) => {
+      // Extract event name (✨ **NAME**)
+      if (line.includes('✨') && line.includes('**')) {
+        const nameMatch = line.match(/\*\*(.+?)\*\*/);
+        if (nameMatch) {
+          name = nameMatch[1].trim();
+        }
+      }
+      // Extract venue (📍 Venue)
+      else if (line.startsWith('📍')) {
+        venue = line.replace('📍', '').trim();
+      }
+      // Extract date (📅 Date)
+      else if (line.startsWith('📅')) {
+        date = line.replace('📅', '').trim();
+        // Format date: convert "2025-12-13" to "Fri, Dec 13"
+        const dateMatch = date.match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (dateMatch) {
+          const [, year, month, day] = dateMatch;
+          const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          date = `${days[dateObj.getDay()]}, ${months[dateObj.getMonth()]} ${parseInt(day)}`;
+        }
+      }
+      // Extract ticket link (URL on its own line, may have leading spaces)
+      else if (line.includes('http://') || line.includes('https://')) {
+        const urlMatch = line.match(/(https?:\/\/[^\s]+)/);
+        if (urlMatch) {
+          ticketLink = urlMatch[1].trim();
+        }
+      }
+      // Extract genres (🎵 Genres)
+      else if (line.startsWith('🎵')) {
+        const genreText = line.replace('🎵', '').trim();
+        genres = genreText.split(/[\/•]/).map(g => g.trim()).filter(g => g);
+      }
+    });
+    
+    if (name && venue) {
+      // Generate a default image URL
+      const imageUrl = `https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080`;
+      
+      events.push({
+        id: Date.now() + index, // Unique ID
+        name,
+        date: date || 'Date TBA',
+        venue,
+        genres: genres.length > 0 ? genres : ['Music'],
+        image: imageUrl,
+        ticketLink: ticketLink || undefined,
+        mapsLink: venue ? `https://maps.google.com/?q=${encodeURIComponent(venue + ', New York')}` : undefined,
+      });
+    }
+  });
+  
+  return events;
+};
+
+// =============================================================================
 // COMPONENT
 // =============================================================================
 
@@ -194,7 +290,12 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
   // =============================================================================
   // CHAT STATE
   // =============================================================================
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+  const getChatHistoryKey = (userId?: string) => {
+    const id = userId || user?.id || 'anonymous';
+    return `raven_chat_history_${id}`;
+  };
+
+  const getDefaultChatMessages = (): ChatMessage[] => {
     const userGenres = safeJsonParse<unknown[]>(localStorage.getItem('raven_user_genres'), []);
     const userVibes = safeJsonParse<unknown[]>(localStorage.getItem('raven_user_vibes'), []);
     const userArtists = localStorage.getItem('raven_user_artists') || '';
@@ -219,9 +320,30 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
         content: 'Ask me anything about nightlife, venues, or events!'
       }
     ];
+  };
+
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+    // Try to load from localStorage using user ID if available
+    const userId = user?.id;
+    const historyKey = getChatHistoryKey(userId);
+    const savedHistory = localStorage.getItem(historyKey);
+    
+    if (savedHistory) {
+      try {
+        const parsed = JSON.parse(savedHistory) as ChatMessage[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (error) {
+        console.error('Failed to parse chat history from localStorage:', error);
+      }
+    }
+    // Return default messages if no saved history
+    return getDefaultChatMessages();
   });
   const [chatInputValue, setChatInputValue] = useState('');
-  const [selectedEvent, setSelectedEvent] = useState<typeof mockEvents[0] | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<(typeof mockEvents[0] | ParsedEvent) | null>(null);
+  const [isChatLoading, setIsChatLoading] = useState(false);
 
   // =============================================================================
   // SHARED STATE
@@ -281,6 +403,41 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [onboardingMessages, chatMessages]);
+
+  // Save chat history to localStorage whenever messages change
+  useEffect(() => {
+    if (hasCompletedOnboarding && user?.id && chatMessages.length > 0) {
+      try {
+        const historyKey = getChatHistoryKey(user.id);
+        localStorage.setItem(historyKey, JSON.stringify(chatMessages));
+      } catch (error) {
+        console.error('Failed to save chat history to localStorage:', error);
+      }
+    }
+  }, [chatMessages, hasCompletedOnboarding, user?.id]);
+
+  // Load chat history when user changes (login/logout)
+  useEffect(() => {
+    if (hasCompletedOnboarding && user?.id) {
+      const historyKey = getChatHistoryKey(user.id);
+      const savedHistory = localStorage.getItem(historyKey);
+      
+      if (savedHistory) {
+        try {
+          const parsed = JSON.parse(savedHistory) as ChatMessage[];
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setChatMessages(parsed);
+            return;
+          }
+        } catch (error) {
+          console.error('Failed to parse chat history from localStorage:', error);
+        }
+      }
+    } else if (!user?.id) {
+      // User logged out, reset to default messages
+      setChatMessages(getDefaultChatMessages());
+    }
+  }, [user?.id, hasCompletedOnboarding]);
 
   // Handle onboarding completion
   useEffect(() => {
@@ -782,26 +939,77 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
   // CHAT HANDLERS
   // =============================================================================
 
-  const handleChatSend = () => {
-    if (!chatInputValue.trim()) return;
+  const handleChatSend = async () => {
+    if (!chatInputValue.trim() || isChatLoading) return;
+
+    const userMessage = chatInputValue.trim();
+    const userId = user?.id;
+
+    if (!userId) {
+      toast.error("Unable to send message", {
+        description: "Please log in again.",
+        style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+      });
+      return;
+    }
 
     const newMessage: ChatMessage = {
       id: chatMessages.length + 1,
       role: 'user',
-      content: chatInputValue
+      content: userMessage
     };
 
     setChatMessages([...chatMessages, newMessage]);
     setChatInputValue('');
+    setIsChatLoading(true);
 
-    setTimeout(() => {
+    try {
+      const response = await apiClient('/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: userId,
+          message: userMessage
+        }),
+      });
+
+      const reply = response.reply || 'I apologize, but I couldn\'t generate a response. Please try again.';
+      
+      // Parse events from the reply
+      const parsedEvents = parseEventsFromReply(reply);
+      
+      // Use simple message when events are detected, otherwise use the full reply
+      const messageContent = parsedEvents.length > 0 
+        ? 'Here are some listed events:'
+        : reply;
+      
       const aiResponse: ChatMessage = {
         id: chatMessages.length + 2,
         role: 'assistant',
-        content: 'Great question! Based on your preferences, let me suggest some spots...'
+        content: messageContent,
+        ...(parsedEvents.length > 0 && { 
+          type: 'events',
+          parsedEvents 
+        })
       };
       setChatMessages(prev => [...prev, aiResponse]);
-    }, 1000);
+    } catch (error) {
+      console.error('Failed to send chat message:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      
+      const errorResponse: ChatMessage = {
+        id: chatMessages.length + 2,
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again later.'
+      };
+      setChatMessages(prev => [...prev, errorResponse]);
+
+      toast.error("Failed to send message", {
+        description: errorMessage,
+        style: { backgroundColor: "#1f1e1e", border: "1px solid #ffaeaf", color: "#fff" },
+      });
+    } finally {
+      setIsChatLoading(false);
+    }
   };
 
   const handleChatKeyPress = (e: React.KeyboardEvent) => {
@@ -853,6 +1061,12 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
             </div>
 
             <div className="py-1">
+              <button className="w-full px-4 py-2 text-left hover:bg-[#2a2a2a] transition-colors" onClick={() => { setIsMenuOpen(false); navigate('/settings'); }}>
+                <p className="font-['Saira:Regular',sans-serif] text-[14px] text-white">
+                  User Settings
+                </p>
+              </button>
+              
               <button className="w-full px-4 py-2 text-left hover:bg-[#2a2a2a] transition-colors" onClick={handleLogout}>
                 <p className="font-['Saira:Regular',sans-serif] text-[14px] text-white">
                   Log out
@@ -1067,18 +1281,35 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
               <p className="font-['Saira:Regular',sans-serif] text-[14px] text-[#e0e0e0] mb-1">
                 {selectedEvent.venue}
               </p>
-              <p className="font-['Saira:Regular',sans-serif] text-[12px] text-[#9c9aa5]">
-                {selectedEvent.address} •{' '}
-                <a 
-                  href={selectedEvent.mapsLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-[#ffaeaf] transition-colors underline whitespace-nowrap"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  Show on map
-                </a>
-              </p>
+              {selectedEvent.address && (
+                <p className="font-['Saira:Regular',sans-serif] text-[12px] text-[#9c9aa5]">
+                  {selectedEvent.address} •{' '}
+                  {selectedEvent.mapsLink && (
+                    <a 
+                      href={selectedEvent.mapsLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-[#ffaeaf] transition-colors underline whitespace-nowrap"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Show on map
+                    </a>
+                  )}
+                </p>
+              )}
+              {!selectedEvent.address && selectedEvent.mapsLink && (
+                <p className="font-['Saira:Regular',sans-serif] text-[12px] text-[#9c9aa5]">
+                  <a 
+                    href={selectedEvent.mapsLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-[#ffaeaf] transition-colors underline whitespace-nowrap"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Show on map
+                  </a>
+                </p>
+              )}
             </div>
           </div>
 
@@ -1097,44 +1328,68 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
             ))}
           </div>
 
-          <div className="mb-6 flex gap-3 items-start animate-modal-content" style={{ animationDelay: '0.4s' }}>
-            <div className="w-[30px] h-[30px] shrink-0 animate-hover">
-              <img 
-                src={ravenImage}
-                alt="Raven"
-                className="w-full h-full object-cover rounded-full"
-              />
+          {selectedEvent.description && (
+            <div className="mb-6 flex gap-3 items-start animate-modal-content" style={{ animationDelay: '0.4s' }}>
+              <div className="w-[30px] h-[30px] shrink-0 animate-hover">
+                <img 
+                  src={ravenImage}
+                  alt="Raven"
+                  className="w-full h-full object-cover rounded-full"
+                />
+              </div>
+              <p className="font-['Saira:Regular',sans-serif] text-[14px] text-[#e0e0e0] leading-[1.6] flex-1">
+                {selectedEvent.description}
+              </p>
             </div>
-            <p className="font-['Saira:Regular',sans-serif] text-[14px] text-[#e0e0e0] leading-[1.6] flex-1">
-              {selectedEvent.description}
-            </p>
-          </div>
+          )}
 
-          <div className="mb-6 animate-modal-content" style={{ animationDelay: '0.5s' }}>
-            <p className="font-['Saira:Regular',sans-serif] text-[16px] text-white mb-3 uppercase tracking-wide">
-              Lineup
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {selectedEvent.lineup.map((artist, index) => (
-                <p 
-                  key={index}
-                  className="font-['Saira:Regular',sans-serif] text-[13px] text-white uppercase tracking-wider"
-                >
-                  {artist}{index < selectedEvent.lineup.length - 1 ? ',' : ''}
-                </p>
-              ))}
+          {selectedEvent.lineup && selectedEvent.lineup.length > 0 && (
+            <div className="mb-6 animate-modal-content" style={{ animationDelay: '0.5s' }}>
+              <p className="font-['Saira:Regular',sans-serif] text-[16px] text-white mb-3 uppercase tracking-wide">
+                Lineup
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {selectedEvent.lineup.map((artist, index) => {
+                  const lineupLength = selectedEvent.lineup?.length || 0;
+                  return (
+                    <p 
+                      key={index}
+                      className="font-['Saira:Regular',sans-serif] text-[13px] text-white uppercase tracking-wider"
+                    >
+                      {artist}{index < lineupLength - 1 ? ',' : ''}
+                    </p>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
-          <button
-            className="w-full bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-6 py-3 rounded-[8px] flex items-center justify-center gap-2 animate-modal-content"
-            style={{ animationDelay: '0.6s' }}
-          >
-            <p className="font-['Saira:Regular',sans-serif] text-[16px] text-[#121212]">
-              To the event page / tickets
-            </p>
-            <ExternalLink className="size-4 text-[#121212]" />
-          </button>
+          {'ticketLink' in selectedEvent && selectedEvent.ticketLink && (
+            <a
+              href={selectedEvent.ticketLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-6 py-3 rounded-[8px] flex items-center justify-center gap-2 animate-modal-content block text-center"
+              style={{ animationDelay: '0.6s' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="font-['Saira:Regular',sans-serif] text-[16px] text-[#121212]">
+                Get Tickets
+              </p>
+              <ExternalLink className="size-4 text-[#121212]" />
+            </a>
+          )}
+          {(!('ticketLink' in selectedEvent) || !selectedEvent.ticketLink) && (
+            <button
+              className="w-full bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors px-6 py-3 rounded-[8px] flex items-center justify-center gap-2 animate-modal-content"
+              style={{ animationDelay: '0.6s' }}
+            >
+              <p className="font-['Saira:Regular',sans-serif] text-[16px] text-[#121212]">
+                To the event page / tickets
+              </p>
+              <ExternalLink className="size-4 text-[#121212]" />
+            </button>
+          )}
         </div>
       </div>
     )
@@ -1532,7 +1787,7 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
                           : 'text-white'
                       }`}
                     >
-                      <p className="font-['Saira:Regular',sans-serif] text-[14px] leading-[1.5]">
+                      <p className="font-['Saira:Regular',sans-serif] text-[14px] leading-[1.5] whitespace-pre-wrap">
                         {message.content}
                       </p>
                     </div>
@@ -1542,53 +1797,73 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
                 {/* Event Cards */}
                 {message.type === 'events' && (
                   <div className="mt-4 pointer-events-auto">
-<div className="flex gap-4 flex-wrap lg:flex-nowrap">
-  {mockEvents.map((event) => (
-    <div
-      key={event.id}
-      onClick={() => setSelectedEvent(event)}
-      className="relative w-full md:w-[320px] lg:w-[320px] lg:flex-shrink-0 h-[180px] rounded-[12px] overflow-hidden border border-[#3a3a3a] hover:border-[#ffaeaf] transition-all cursor-pointer hover-party-frenzy"
-    >
-      <div
-        className="absolute inset-0 bg-cover bg-center"
-        style={{
-          backgroundImage: `url(${event.image})`,
-          filter: 'blur(8px)',
-          transform: 'scale(1.1)'
-        }}
-      />
+                    <div className="flex gap-4 flex-wrap lg:flex-nowrap">
+                      {(message.parsedEvents && message.parsedEvents.length > 0 ? message.parsedEvents : mockEvents).map((event) => (
+                        <div
+                          key={event.id}
+                          onClick={() => setSelectedEvent(event as typeof mockEvents[0] | ParsedEvent)}
+                          className="relative w-full md:w-[320px] lg:w-[320px] lg:flex-shrink-0 h-[180px] rounded-[12px] overflow-hidden border border-[#3a3a3a] hover:border-[#ffaeaf] transition-all cursor-pointer hover-party-frenzy"
+                        >
+                          <div
+                            className="absolute inset-0 bg-cover bg-center"
+                            style={{
+                              backgroundImage: `url(${event.image})`,
+                              filter: 'blur(8px)',
+                              transform: 'scale(1.1)'
+                            }}
+                          />
 
-      <div className="absolute inset-0 bg-black/75" />
+                          <div className="absolute inset-0 bg-black/75" />
 
-      <div className="relative h-full p-5 flex flex-col justify-between">
-        <div>
-          <p className="font-['Audiowide:Regular',sans-serif] text-[18px] text-white mb-2 drop-shadow-lg">
-            {event.name}
-          </p>
-          <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#ffaeaf] mb-1 drop-shadow-lg">
-            {event.date}
-          </p>
-          <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#e0e0e0] drop-shadow-lg">
-            {event.venue}
-          </p>
-        </div>
+                          <div className="relative h-full p-5 flex flex-col justify-between">
+                            <div>
+                              <p className="font-['Audiowide:Regular',sans-serif] text-[18px] text-white mb-2 drop-shadow-lg">
+                                {event.name}
+                              </p>
+                              <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#ffaeaf] mb-1 drop-shadow-lg">
+                                {event.date}
+                              </p>
+                              <p className="font-['Saira:Regular',sans-serif] text-[13px] text-[#e0e0e0] drop-shadow-lg">
+                                {event.venue}
+                              </p>
+                            </div>
 
-        <div className="w-full">
-          <p className="font-['Saira:Regular',sans-serif] text-[11px] text-[#b0b0b0] uppercase tracking-wider drop-shadow-lg mb-2">
-            {event.genres.join(' • ')}
-          </p>
-        </div>
-      </div>
-    </div>
-  ))}
-</div>
-
-
+                            <div className="w-full">
+                              <p className="font-['Saira:Regular',sans-serif] text-[11px] text-[#b0b0b0] uppercase tracking-wider drop-shadow-lg mb-2">
+                                {event.genres.join(' • ')}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
             );
           })}
+          
+          {/* Loading indicator */}
+          {isChatLoading && (
+            <div className="flex justify-start pointer-events-auto">
+              <div className="w-[30px] h-[30px] shrink-0 mr-3">
+                <img 
+                  src={ravenImage}
+                  alt="Raven"
+                  className="w-full h-full object-cover rounded-full"
+                />
+              </div>
+              <div className="text-white max-w-[85%]">
+                <div className="flex items-center gap-2 px-4 py-3">
+                  <Loader2 className="size-4 animate-spin text-[#9c9aa5]" />
+                  <p className="font-['Saira:Regular',sans-serif] text-[14px] text-[#9c9aa5]">
+                    Raven is thinking...
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div ref={messagesEndRef} />
           </div>
         </div>
@@ -1604,13 +1879,19 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
               onChange={(e) => setChatInputValue(e.target.value)}
               onKeyPress={handleChatKeyPress}
               placeholder="Ask about nightlife, venues, events..."
-              className="flex-1 bg-transparent border-none outline-none text-white placeholder:text-[#9c9aa5] font-['Saira:Regular',sans-serif] text-[16px]"
+              disabled={isChatLoading}
+              className="flex-1 bg-transparent border-none outline-none text-white placeholder:text-[#9c9aa5] font-['Saira:Regular',sans-serif] text-[16px] disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button
               onClick={handleChatSend}
-              className="bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors p-2 rounded-[8px]"
+              disabled={isChatLoading || !chatInputValue.trim()}
+              className="bg-[#ffaeaf] hover:bg-[#ff9e9f] transition-colors p-2 rounded-[8px] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Send className="size-5 text-[#121212]" />
+              {isChatLoading ? (
+                <Loader2 className="size-5 text-[#121212] animate-spin" />
+              ) : (
+                <Send className="size-5 text-[#121212]" />
+              )}
             </button>
           </div>
           <p className="font-['Saira:Regular',sans-serif] text-[11px] text-[#9c9aa5] text-center mt-2">

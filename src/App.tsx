@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { useDispatch, useSelector } from 'react-redux';
 import { SignUpScreen } from './components/SignUpScreen';
 import { HomeScreen } from './components/HomeScreen';
+import { UserSettings } from './components/UserSettings';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -221,6 +222,18 @@ export default function App() {
                 onTermsClick={handleTermsClick}
                 onLogout={handleLogout}
               />
+              </ErrorBoundary>
+            </ProtectedRoute>
+          } 
+        />
+        
+        {/* User Settings */}
+        <Route 
+          path="/settings" 
+          element={
+            <ProtectedRoute>
+              <ErrorBoundary>
+                <UserSettings />
               </ErrorBoundary>
             </ProtectedRoute>
           } 
