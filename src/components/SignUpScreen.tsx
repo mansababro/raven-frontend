@@ -174,7 +174,7 @@ export function SignUpScreen({ onPrivacyClick, onTermsClick }: SignUpScreenProps
             {/* Footer Text & Button */}
             <div className="flex flex-col gap-[18px] items-center pb-4">
               <p className="font-['Saira:Regular',sans-serif] leading-[17.6px] text-[14px] sm:text-[16px] text-center text-white px-4">
-                YOUR PERSONAL AI NIGHTLIFE GUIDE
+                YOUR PERSONAL NIGHTLIFE GUIDE
               </p>
               <button 
                 onClick={scrollToForm}

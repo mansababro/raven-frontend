@@ -371,7 +371,7 @@ function ButtonOnDark() {
 function Frame9() {
   return (
     <div className="absolute content-stretch flex flex-col gap-[18px] items-center left-[calc(50%+2px)] top-[660px] translate-x-[-50%]">
-      <p className="font-['Saira:Regular',sans-serif] leading-[1.1] not-italic relative shrink-0 text-[16px] text-nowrap text-white whitespace-pre">YOUR PERSONAL AI NIGHTLIFE GUIDE</p>
+      <p className="font-['Saira:Regular',sans-serif] leading-[1.1] not-italic relative shrink-0 text-[16px] text-nowrap text-white whitespace-pre">YOUR PERSONAL NIGHTLIFE GUIDE</p>
       <ButtonOnDark />
     </div>
   );

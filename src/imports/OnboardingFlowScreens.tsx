@@ -7,7 +7,7 @@ function Iframe() {
 function Paragraph() {
   return (
     <div className="h-[21px] relative shrink-0 w-full" data-name="Paragraph">
-      <p className="absolute font-['Doppio_One:Regular',sans-serif] leading-[21px] left-[128.5px] not-italic text-[#ffaeaf] text-[14px] text-center text-nowrap top-[-0.5px] translate-x-[-50%] whitespace-pre">{`Hey! I'm Raven, your AI nightlife guide. `}</p>
+      <p className="absolute font-['Doppio_One:Regular',sans-serif] leading-[21px] left-[128.5px] not-italic text-[#ffaeaf] text-[14px] text-center text-nowrap top-[-0.5px] translate-x-[-50%] whitespace-pre">{`Hey! I'm Raven, your nightlife guide. `}</p>
     </div>
   );
 }

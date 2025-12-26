@@ -46,7 +46,7 @@ export function OnboardingScreen({ onPrivacyClick = () => {}, onTermsClick = () 
     {
       id: 1,
       role: 'assistant',
-      content: 'Hey! I\'m Raven, your AI nightlife guide. Let\'s get to know each other!'
+      content: 'Hey! I\'m Raven, your nightlife guide. Let\'s get to know each other!'
     },
     {
       id: 2,
@@ -407,7 +407,7 @@ export function OnboardingScreen({ onPrivacyClick = () => {}, onTermsClick = () 
                     <div 
                       className={`relative w-full md:w-auto max-w-[90vw] px-4 md:px-0 flex flex-col bg-transparent transition-all duration-700 ease-in-out ${showSpline ? '-mt-[45px]' : 'mt-0'}`}
                     >
-                      <p className="font-['Doppio_One:Regular',sans-serif] leading-[1.3] not-italic text-[#ffaeaf] text-[3.8vw] md:text-[16.8px] text-center whitespace-nowrap">Hey! I&apos;m Raven, your AI nightlife guide.</p>
+                      <p className="font-['Doppio_One:Regular',sans-serif] leading-[1.3] not-italic text-[#ffaeaf] text-[3.8vw] md:text-[16.8px] text-center whitespace-nowrap">Hey! I&apos;m Raven, your nightlife guide.</p>
                       <p className="font-['Doppio_One:Regular',sans-serif] leading-[1.3] not-italic text-[#ffaeaf] text-[3.8vw] md:text-[16.8px] text-center whitespace-nowrap">Let&apos;s get to know each other!</p>
                     </div>
                   </div>

@@ -31,7 +31,7 @@ function Paragraph2() {
   return (
     <div className="h-[17.594px] relative shrink-0 w-[284.852px]" data-name="Paragraph">
       <div className="bg-clip-padding border-0 border-[transparent] border-solid h-[17.594px] relative w-[284.852px]">
-        <p className="absolute font-['Saira:Regular',sans-serif] leading-[17.6px] left-0 not-italic text-[16px] text-nowrap text-white top-0 whitespace-pre">YOUR PERSONAL AI NIGHTLIFE GUIDE</p>
+        <p className="absolute font-['Saira:Regular',sans-serif] leading-[17.6px] left-0 not-italic text-[16px] text-nowrap text-white top-0 whitespace-pre">YOUR PERSONAL NIGHTLIFE GUIDE</p>
       </div>
     </div>
   );
