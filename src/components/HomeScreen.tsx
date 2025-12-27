@@ -964,7 +964,7 @@ export function HomeScreen({ onPrivacyClick = () => {}, onTermsClick = () => {} 
     setIsChatLoading(true);
 
     try {
-      const response = await apiClient('/api/chat', {
+      const response = await apiClient('/chatbot/chat', {
         method: 'POST',
         body: JSON.stringify({
           userId: userId,
